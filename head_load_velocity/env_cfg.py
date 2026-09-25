@@ -51,6 +51,10 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "payload_mass_upper": CurriculumTermCfg(func=PayloadMassUpper),
   }
 
+  cfg.rewards["track_linear_velocity"].weight = 4.0
+  cfg.rewards["pose"].weight = 0.6
+  cfg.rewards["angular_momentum"].weight = -0.01
+
   for name in (
     "track_linear_velocity",
     "track_angular_velocity",
