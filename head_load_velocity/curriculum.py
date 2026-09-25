@@ -53,10 +53,14 @@ def sample_payload_mass(
   env: ManagerBasedRlEnv,
   env_ids: torch.Tensor,
   asset_cfg: SceneEntityCfg,
+  mass_kg: float | None = None,
 ) -> None:
-  manager = cast(CurriculumManager, env.curriculum_manager)
-  curriculum = manager.get_term_cfg("payload_mass_upper").func
-  mass = 1.0 + torch.rand(len(env_ids), device=env.device) * (curriculum.upper - 1.0)
+  if mass_kg is None:
+    manager = cast(CurriculumManager, env.curriculum_manager)
+    curriculum = manager.get_term_cfg("payload_mass_upper").func
+    mass = 1.0 + torch.rand(len(env_ids), device=env.device) * (curriculum.upper - 1.0)
+  else:
+    mass = torch.full((len(env_ids),), mass_kg, device=env.device)
   body_id = env.scene[asset_cfg.name].indexing.body_ids[asset_cfg.body_ids][0]
   env.sim.model.body_mass[env_ids, body_id] = mass
   env.sim.model.body_inertia[env_ids, body_id] = 0.015 * mass[:, None]

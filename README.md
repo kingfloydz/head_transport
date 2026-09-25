@@ -31,6 +31,18 @@ python -m mjlab.scripts.play Mjlab-Velocity-HeadLoad-Unitree-G1 \
   --checkpoint-file /path/to/model_1000.pt --num-envs 1
 ```
 
+通过 `HEAD_LOAD_MASS_KG` 指定播放时的固定箱体质量（正数，单位 kg）。例如 20 kg：
+
+```bash
+HEAD_LOAD_MASS_KG=20 MUJOCO_GL=disable python -m mjlab.scripts.play \
+  Mjlab-Velocity-HeadLoad-Unitree-G1 \
+  --checkpoint-file /path/to/model_1000.pt --num-envs 1 --viewer viser
+```
+
+每次 reset 都使用该质量，并同步惯量；箱体边长仍为 0.3 m。
+此变量只作用于播放配置。未设置时播放按 `[1, 3]` kg 随机采样；
+训练继续使用质量课程。
+
 日志和 checkpoint 由官方入口保存到
 `logs/rsl_rl/g1_head_load_velocity/`。
 

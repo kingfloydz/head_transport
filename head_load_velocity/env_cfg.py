@@ -1,5 +1,6 @@
 """Official G1 flat velocity task with a fixed head payload and mass curriculum."""
 
+import os
 from typing import cast
 
 from mjlab.actuator import BuiltinPositionActuatorCfg
@@ -97,4 +98,6 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       },
     ),
   }
+  if play and (mass_kg := os.getenv("HEAD_LOAD_MASS_KG")) is not None:
+    cfg.events["payload_mass"].params["mass_kg"] = float(mass_kg)
   return cfg
