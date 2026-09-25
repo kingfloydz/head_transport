@@ -39,6 +39,13 @@ python -m mjlab.scripts.play Mjlab-Velocity-HeadLoad-Unitree-G1 \
 - 4096 个环境，回合 20 秒，策略频率 50 Hz；29 维动作、96 维 actor 观测。
 - 完整复用官方 G1 flat 奖励、PPO、MLP、观测函数和有限外力脉冲。
 - 使用提供的 29 DoF URDF，保留四球足部碰撞；头部固定边长 0.3 m 的立方体。
+- 电机配置参考 [rickshaw 的 G1 mode-15 参数](https://github.com/well-robotics/rickshaw/blob/fbb16ec3c59b2dbf8a2eed6070ad6004be4ba501/source/g1_rickshaw_lab/g1_rickshaw_lab/g1_actuator_config.py)：
+  双腕 roll / pitch / yaw 使用 N5010，armature 为 `0.0021812`，
+  `Kp = armature × (2π×10)²`，`Kd = 2×2×armature×(2π×10)`。
+  其余关节复用官方 PD / armature，各关节力矩上限取 URDF；
+  动作缩放统一按 `0.25 × effort_limit / Kp` 计算。
+- 每只手的接触为半径 `0.05 m` 的球体，球心位于该手网格包围盒中心，
+  接触维度为 3（含切向摩擦）。保留手部外观、质量和惯量。
 - 所有环境共享质量上限，初始 3 kg。每个 iteration 读取官方
   `mean_episode_length`，乘以策略步长 `0.02` 换算为秒。
   每 100 个 iteration 对窗口内这些值取算术平均，严格大于 19 秒时，

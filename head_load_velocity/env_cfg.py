@@ -1,7 +1,12 @@
 """Official G1 flat velocity task with a fixed head payload and mass curriculum."""
 
+from typing import cast
+
+from mjlab.actuator import BuiltinPositionActuatorCfg
+from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
+from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
@@ -15,6 +20,16 @@ from .curriculum import PayloadMassUpper, sample_payload_mass
 def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg = unitree_g1_flat_env_cfg(play=play)
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
+  articulation = cast(
+    EntityArticulationInfoCfg, cfg.scene.entities["robot"].articulation
+  )
+  action = cast(JointPositionActionCfg, cfg.actions["joint_pos"])
+  action.scale = {}
+  for actuator_cfg in articulation.actuators:
+    actuator = cast(BuiltinPositionActuatorCfg, actuator_cfg)
+    action.scale[actuator.target_names_expr[0]] = (
+      0.25 * cast(float, actuator.effort_limit) / actuator.stiffness
+    )
   cfg.scene.num_envs = 4096
   cfg.episode_length_s = 20.0
   del cfg.observations["actor"].terms["base_lin_vel"]

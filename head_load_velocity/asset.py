@@ -1,4 +1,4 @@
-"""Supplied 29-DoF G1 URDF with the official controller and a fixed head box."""
+"""G1 mode-15 motors, spherical hand contacts, and a fixed head box."""
 
 import re
 import xml.etree.ElementTree as ET
@@ -11,8 +11,10 @@ import trimesh
 
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
+  DAMPING_RATIO,
   G1_ARTICULATION,
   G1_XML,
+  NATURAL_FREQ,
   get_g1_robot_cfg,
 )
 from mjlab.entity import EntityCfg
@@ -20,6 +22,14 @@ from mjlab.entity import EntityCfg
 URDF_PATH = Path(__file__).parent / "assets" / "g1_29dof_mode_15.urdf"
 MESH_DIR = URDF_PATH.parent / "meshes"
 FOOT_PATTERN = r"^(left|right)_foot[1-4]_collision$"
+HAND_PATTERN = r"^(left|right)_hand_collision$"
+ARMATURE_5010 = 0.0021812
+WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
+  target_names_expr=(".*_wrist_.*",),
+  stiffness=ARMATURE_5010 * NATURAL_FREQ**2,
+  damping=2.0 * DAMPING_RATIO * ARMATURE_5010 * NATURAL_FREQ,
+  armature=ARMATURE_5010,
+)
 
 
 def get_spec() -> mujoco.MjSpec:
@@ -48,6 +58,17 @@ def get_spec() -> mujoco.MjSpec:
     spec.geom(visual.attrib["name"]).group = 2
   for collision in root.iter("collision"):
     spec.geom(collision.attrib["name"]).group = 3
+
+  for side in ("left", "right"):
+    hand_mesh = trimesh.load_mesh(MESH_DIR / f"{side}_rubber_hand.STL")
+    spec.body(f"{side}_rubber_hand").add_geom(
+      name=f"{side}_hand_collision",
+      type=mujoco.mjtGeom.mjGEOM_SPHERE,
+      size=(0.05, 0.0, 0.0),
+      pos=hand_mesh.bounds.mean(axis=0).tolist(),
+      mass=0.0,
+      group=3,
+    )
 
   # Reuse the official sites and built-in sensors required by flat G1 rewards.
   reference = mujoco.MjSpec.from_string(G1_XML.read_text(encoding="utf-8"))
@@ -101,7 +122,9 @@ def get_head_load_robot_cfg() -> EntityCfg:
     G1_ARTICULATION,
     actuators=tuple(
       replace(
-        cast(BuiltinPositionActuatorCfg, actuator),
+        WRIST_ACTUATOR
+        if "_wrist_" in joint.attrib["name"]
+        else cast(BuiltinPositionActuatorCfg, actuator),
         target_names_expr=(joint.attrib["name"],),
         effort_limit=float(cast(ET.Element, joint.find("limit")).attrib["effort"]),
       )
@@ -116,7 +139,7 @@ def get_head_load_robot_cfg() -> EntityCfg:
   cfg.collisions = (
     replace(
       cfg.collisions[0],
-      condim={FOOT_PATTERN: 3, ".*_collision": 1},
+      condim={FOOT_PATTERN: 3, HAND_PATTERN: 3, ".*_collision": 1},
       priority=0,
       friction={FOOT_PATTERN: (0.3,)},
     ),
