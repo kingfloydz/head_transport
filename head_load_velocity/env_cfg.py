@@ -16,6 +16,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from .asset import get_head_load_robot_cfg
 from .curriculum import PayloadMassUpper, sample_payload_mass
+from .rewards import CommandGatedSwingHeight, command_gated_reward
 
 
 def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -49,6 +50,27 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.curriculum = {
     "payload_mass_upper": CurriculumTermCfg(func=PayloadMassUpper),
   }
+
+  for name in (
+    "track_linear_velocity",
+    "track_angular_velocity",
+    "air_time",
+    "foot_clearance",
+    "foot_slip",
+    "soft_landing",
+  ):
+    reward = cfg.rewards[name]
+    reward.params["reward_fn"] = reward.func
+    reward.func = command_gated_reward
+  cfg.rewards["foot_swing_height"].func = CommandGatedSwingHeight
+  for name in (
+    "air_time",
+    "foot_clearance",
+    "foot_swing_height",
+    "foot_slip",
+    "soft_landing",
+  ):
+    cfg.rewards[name].params["command_threshold"] = 0.0
 
   cfg.events = {
     "reset_base": cfg.events["reset_base"],
