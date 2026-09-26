@@ -1,4 +1,4 @@
-"""Official G1 flat velocity task with a fixed head payload and mass curriculum."""
+"""Official G1 flat velocity task with uniformly sampled head payload mass."""
 
 import os
 from typing import cast
@@ -8,15 +8,13 @@ from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from .asset import get_head_load_robot_cfg
-from .curriculum import PayloadMassUpper, sample_payload_mass
-from .rewards import CommandGatedSwingHeight, command_gated_reward
+from .events import sample_payload_mass
 
 
 def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -47,32 +45,8 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       ),
     ),
   }
-  cfg.curriculum = {
-    "payload_mass_upper": CurriculumTermCfg(func=PayloadMassUpper),
-  }
-
+  cfg.curriculum = {}
   cfg.rewards["track_linear_velocity"].weight = 4.0
-
-  for name in (
-    "track_linear_velocity",
-    "track_angular_velocity",
-    "air_time",
-    "foot_clearance",
-    "foot_slip",
-    "soft_landing",
-  ):
-    reward = cfg.rewards[name]
-    reward.params["reward_fn"] = reward.func
-    reward.func = command_gated_reward
-  cfg.rewards["foot_swing_height"].func = CommandGatedSwingHeight
-  for name in (
-    "air_time",
-    "foot_clearance",
-    "foot_swing_height",
-    "foot_slip",
-    "soft_landing",
-  ):
-    cfg.rewards[name].params["command_threshold"] = 0.0
 
   cfg.events = {
     "reset_base": cfg.events["reset_base"],

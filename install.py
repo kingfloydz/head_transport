@@ -1,5 +1,6 @@
 """Install the head-load task into the active mjlab 1.6.0 environment."""
 
+import re
 import shutil
 from pathlib import Path
 
@@ -16,16 +17,15 @@ shutil.copytree(
 
 train_script = mjlab_dir / "scripts" / "train.py"
 train_script.write_text(
-  train_script.read_text(encoding="utf-8")
-  .replace("init_at_random_ep_len=True", "init_at_random_ep_len=False")
-  .replace(
-    "  runner.learn(\n"
-    "    num_learning_iterations=cfg.agent.max_iterations, init_at_random_ep_len=False\n"
-    "  )",
-    '  if task_id == "Mjlab-Velocity-HeadLoad-Unitree-G1":\n'
-    "    from mjlab.tasks.head_load_velocity.curriculum import bind_payload_curriculum\n"
-    "    bind_payload_curriculum(runner)\n\n"
-    "  runner.learn(cfg.agent.max_iterations, init_at_random_ep_len=False)",
-  ),
+  re.sub(
+    r'  if task_id == "Mjlab-Velocity-HeadLoad-Unitree-G1":\n'
+    r"    from mjlab.tasks.head_load_velocity.curriculum import bind_payload_curriculum\n"
+    r"\s*bind_payload_curriculum\(runner\)\n",
+    "",
+    train_script.read_text(encoding="utf-8"),
+  ).replace("init_at_random_ep_len=False", "init_at_random_ep_len=True"),
   encoding="utf-8",
 )
+
+for name in ("curriculum.py", "rewards.py"):
+  (mjlab_dir / "tasks" / "head_load_velocity" / name).unlink(missing_ok=True)
