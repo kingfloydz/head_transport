@@ -1,11 +1,8 @@
 """Reset-time uniform payload mass sampling and synchronized inertia."""
 
-from typing import cast
-
 import torch
 
 from mjlab.envs import ManagerBasedRlEnv
-from mjlab.managers.curriculum_manager import CurriculumManager
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
@@ -18,9 +15,7 @@ def sample_payload_mass(
   mass_kg: float | None = None,
 ) -> None:
   if mass_kg is None:
-    manager = cast(CurriculumManager, env.curriculum_manager)
-    upper = manager.get_term_cfg("payload_mass_upper").func.upper
-    mass = 1.0 + (upper - 1.0) * torch.rand(len(env_ids), device=env.device)
+    mass = 1.0 + 59.0 * torch.rand(len(env_ids), device=env.device)
   else:
     mass = torch.full((len(env_ids),), mass_kg, device=env.device)
   body_id = env.scene[asset_cfg.name].indexing.body_ids[asset_cfg.body_ids][0]

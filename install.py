@@ -24,16 +24,9 @@ source = re.sub(
   train_script.read_text(encoding="utf-8"),
 )
 train_script.write_text(
-  re.sub(
-    r"  runner\.learn\(\s*(?:num_learning_iterations=)?cfg\.agent\.max_iterations,\s*"
-    r"init_at_random_ep_len=(?:True|False)\s*\)",
-    '  if task_id == "Mjlab-Velocity-HeadLoad-Unitree-G1":\n'
-    "    from mjlab.tasks.head_load_velocity.curriculum import bind_payload_curriculum\n"
-    "\n    bind_payload_curriculum(runner)\n\n"
-    "  runner.learn(cfg.agent.max_iterations, init_at_random_ep_len=False)",
-    source,
-  ),
+  source.replace("init_at_random_ep_len=False", "init_at_random_ep_len=True"),
   encoding="utf-8",
 )
 
-(mjlab_dir / "tasks" / "head_load_velocity" / "rewards.py").unlink(missing_ok=True)
+for name in ("curriculum.py", "rewards.py"):
+  (mjlab_dir / "tasks" / "head_load_velocity" / name).unlink(missing_ok=True)
