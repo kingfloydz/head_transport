@@ -21,7 +21,7 @@ from mjlab.entity import EntityCfg
 
 URDF_PATH = Path(__file__).parent / "assets" / "g1_29dof_mode_15.urdf"
 MESH_DIR = URDF_PATH.parent / "meshes"
-FOOT_PATTERN = r"^(left|right)_foot[1-4]_collision$"
+FOOT_PATTERN = r"^(left|right)_foot[1-7]_collision$"
 HAND_PATTERN = r"^(left|right)_hand_collision$"
 ARMATURE_5010 = 0.0021812
 WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
@@ -72,6 +72,20 @@ def get_spec() -> mujoco.MjSpec:
 
   # Reuse the official sites and built-in sensors required by flat G1 rewards.
   reference = mujoco.MjSpec.from_string(G1_XML.read_text(encoding="utf-8"))
+  for side in ("left", "right"):
+    for i in range(1, 5):
+      spec.delete(spec.geom(f"{side}_foot{i}_collision"))
+    body = spec.body(f"{side}_ankle_roll_link")
+    for i in range(1, 8):
+      source = reference.geom(f"{side}_foot{i}_collision")
+      body.add_geom(
+        name=source.name,
+        type=source.type,
+        size=source.size.tolist(),
+        fromto=source.fromto.tolist(),
+        mass=0.0,
+        group=3,
+      )
   for body_name, site_name in (
     ("pelvis", "imu_in_pelvis"),
     ("torso_link", "imu_in_torso"),
