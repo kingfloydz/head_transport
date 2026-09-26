@@ -9,6 +9,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
@@ -47,6 +48,11 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   }
   cfg.curriculum = {}
   cfg.rewards["track_linear_velocity"].weight = 4.0
+  cfg.rewards["joint_torques_l2"] = RewardTermCfg(
+    func=mdp.joint_torques_l2,
+    weight=-1e-5,
+    params={"asset_cfg": SceneEntityCfg("robot", actuator_names=".*")},
+  )
 
   cfg.events = {
     "reset_base": cfg.events["reset_base"],
