@@ -1,0 +1,52 @@
+"""Six payload mass stages, promoted by the official episode-length metric."""
+
+from collections.abc import Callable
+from functools import partial
+from statistics import mean
+from typing import Any, cast
+
+import torch
+from rsl_rl.utils.logger import Logger
+
+from mjlab.envs import ManagerBasedRlEnv
+from mjlab.managers.curriculum_manager import CurriculumManager, CurriculumTermCfg
+from mjlab.rl.runner import MjlabOnPolicyRunner
+
+MASS_UPPER_LEVELS = (10.0, 20.0, 30.0, 40.0, 50.0, 60.0)
+
+
+class PayloadMassUpper:
+  def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
+    self.stage = 0
+    self.upper = torch.tensor(MASS_UPPER_LEVELS[0], device=env.device)
+    self.iterations = 0
+    self.lengths: list[float] = []
+
+  def __call__(
+    self, env: ManagerBasedRlEnv, env_ids: torch.Tensor | slice
+  ) -> torch.Tensor:
+    return self.upper.clone()
+
+  def log_iteration(
+    self, log: Callable, logger: Logger, step_dt: float, *args, **kwargs
+  ):
+    log(*args, **kwargs)
+    self.iterations += 1
+    if logger.lenbuffer:
+      self.lengths.append(mean(logger.lenbuffer) * step_dt)
+    if self.iterations % 100 == 0:
+      if self.lengths and mean(self.lengths) > 19.0:
+        self.stage = min(self.stage + 1, len(MASS_UPPER_LEVELS) - 1)
+        self.upper.fill_(MASS_UPPER_LEVELS[self.stage])
+      if logger.gpu_world_size > 1:
+        torch.distributed.broadcast(self.upper, src=0)
+      self.lengths.clear()
+
+
+def bind_payload_curriculum(runner: MjlabOnPolicyRunner) -> None:
+  env = runner.env.unwrapped
+  manager = cast(CurriculumManager, env.curriculum_manager)
+  curriculum = manager.get_term_cfg("payload_mass_upper").func
+  cast(Any, runner.logger).log = partial(
+    curriculum.log_iteration, runner.logger.log, runner.logger, env.step_dt
+  )

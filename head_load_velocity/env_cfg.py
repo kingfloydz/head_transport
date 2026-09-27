@@ -1,39 +1,74 @@
-"""Official G1 flat velocity task with uniformly sampled head payload mass."""
+"""G1 velocity tracking while balancing a free, randomized payload."""
 
 import os
+from copy import deepcopy
 from typing import cast
 
-from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
-from .asset import get_head_load_robot_cfg
-from .events import sample_payload_mass
+from .asset import get_head_load_robot_cfg, get_payload_cfg
+from .curriculum import PayloadMassUpper
+from .events import reset_payload
+from .mdp import payload_lost_contact, payload_state
+from .networks import HISTORY_LENGTH
+from .torque_speed import TorqueSpeedActuatorCfg
 
 
 def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg = unitree_g1_flat_env_cfg(play=play)
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
+  cfg.scene.entities["payload"] = get_payload_cfg()
   articulation = cast(
     EntityArticulationInfoCfg, cfg.scene.entities["robot"].articulation
   )
   action = cast(JointPositionActionCfg, cfg.actions["joint_pos"])
   action.scale = {}
   for actuator_cfg in articulation.actuators:
-    actuator = cast(BuiltinPositionActuatorCfg, actuator_cfg)
+    actuator = cast(TorqueSpeedActuatorCfg, actuator_cfg)
     action.scale[actuator.target_names_expr[0]] = (
-      0.25 * cast(float, actuator.effort_limit) / actuator.stiffness
+      0.25 * actuator.effort_limit / actuator.stiffness
     )
   cfg.scene.num_envs = 4096
   cfg.episode_length_s = 20.0
   del cfg.observations["actor"].terms["base_lin_vel"]
+  cfg.observations["actor"] = deepcopy(cfg.observations["actor"])
+  cfg.observations["actor"].history_length = HISTORY_LENGTH + 1
+  cfg.observations["actor"].flatten_history_dim = False
+  cfg.scene.sensors += (
+    ContactSensorCfg(
+      name="payload_platform_contact",
+      primary=ContactMatch(mode="geom", pattern="payload_collision", entity="payload"),
+      secondary=ContactMatch(
+        mode="geom", pattern="head_platform_collision", entity="robot"
+      ),
+      fields=("found", "force"),
+      reduce="netforce",
+      track_air_time=True,
+    ),
+  )
+  cfg.observations["critic"].terms["payload_state"] = ObservationTermCfg(
+    func=payload_state,
+    params={
+      "platform_cfg": SceneEntityCfg("robot", site_names=("head_platform",)),
+      "sensor_name": "payload_platform_contact",
+    },
+  )
+  cfg.terminations["payload_lost_contact"] = TerminationTermCfg(
+    func=payload_lost_contact,
+    params={"sensor_name": "payload_platform_contact"},
+  )
 
   cfg.commands = {
     "twist": UniformVelocityCommandCfg(
@@ -46,7 +81,7 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       ),
     ),
   }
-  cfg.curriculum = {}
+  cfg.curriculum = {"payload_mass_upper": CurriculumTermCfg(func=PayloadMassUpper)}
   cfg.rewards["track_linear_velocity"].weight = 4.0
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
     func=mdp.joint_torques_l2,
@@ -57,10 +92,23 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events = {
     "reset_base": cfg.events["reset_base"],
     "reset_robot_joints": cfg.events["reset_robot_joints"],
-    "payload_mass": EventTermCfg(
-      func=sample_payload_mass,
+    "payload_size": EventTermCfg(
+      func=dr.geom_size,
       mode="reset",
-      params={"asset_cfg": SceneEntityCfg("robot", body_names=("head_payload",))},
+      params={
+        "asset_cfg": SceneEntityCfg("payload", geom_names=("payload_collision",)),
+        "operation": "abs",
+        "ranges": (0.025, 0.25),
+        "axes": [0, 1, 2],
+      },
+    ),
+    "payload_mass": EventTermCfg(
+      func=reset_payload,
+      mode="reset",
+      params={
+        "asset_cfg": SceneEntityCfg("payload", geom_names=("payload_collision",)),
+        "platform_cfg": SceneEntityCfg("robot", site_names=("head_platform",)),
+      },
     ),
     "torso_mass": EventTermCfg(
       func=dr.body_mass,

@@ -1,4 +1,4 @@
-"""G1 mode-15 motors, spherical hand contacts, and a fixed head box."""
+"""G1 platform, restricted arm contacts, and a separate free payload."""
 
 import re
 import xml.etree.ElementTree as ET
@@ -18,11 +18,18 @@ from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
   get_g1_robot_cfg,
 )
 from mjlab.entity import EntityCfg
+from mjlab.utils.spec_config import CollisionCfg
+
+from .torque_speed import TorqueSpeedActuatorCfg, mode_15_curve
 
 URDF_PATH = Path(__file__).parent / "assets" / "g1_29dof_mode_15.urdf"
 MESH_DIR = URDF_PATH.parent / "meshes"
 FOOT_PATTERN = r"^(left|right)_foot[1-7]_collision$"
 HAND_PATTERN = r"^(left|right)_hand_collision$"
+ARM_PATTERN = r"^(left|right)_(shoulder|elbow|wrist|hand).*_collision$"
+PLATFORM_POS = (0.0, 0.0, 0.44)
+PLATFORM_HALF_SIZE = (0.1, 0.1, 0.01)
+PAYLOAD_SOLREF = (0.01, 1.2)
 ARMATURE_5010 = 0.0021812
 WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_wrist_.*",),
@@ -112,18 +119,22 @@ def get_spec() -> mujoco.MjSpec:
       refname=sensor.refname,
     )
 
-  # The supplied head mesh has identity visual origin in head_link.
-  head_mesh = trimesh.load_mesh(MESH_DIR / "head_link.STL")
-  payload = spec.body("head_link").add_body(
-    name="head_payload", pos=(0.0, 0.0, float(head_mesh.bounds[1, 2]) + 0.15)
-  )
-  payload.add_geom(
-    name="head_payload_collision",
+  spec.body("torso_link").add_geom(
+    name="head_platform_collision",
     type=mujoco.mjtGeom.mjGEOM_BOX,
-    size=(0.15, 0.15, 0.15),
-    mass=1.0,
+    pos=PLATFORM_POS,
+    size=PLATFORM_HALF_SIZE,
+    mass=0.0,
     group=2,
-    rgba=(0.8, 0.45, 0.15, 1.0),
+    friction=(0.8, 0.005, 0.0001),
+    solref=PAYLOAD_SOLREF,
+    rgba=(0.2, 0.3, 0.4, 1.0),
+  )
+  spec.body("torso_link").add_site(
+    name="head_platform",
+    pos=PLATFORM_POS,
+    size=(0.005,) * 3,
+    group=5,
   )
   return spec
 
@@ -135,12 +146,13 @@ def get_head_load_robot_cfg() -> EntityCfg:
   cfg.articulation = replace(
     G1_ARTICULATION,
     actuators=tuple(
-      replace(
-        WRIST_ACTUATOR
-        if "_wrist_" in joint.attrib["name"]
-        else cast(BuiltinPositionActuatorCfg, actuator),
+      TorqueSpeedActuatorCfg(
         target_names_expr=(joint.attrib["name"],),
+        stiffness=gains.stiffness,
+        damping=gains.damping,
+        armature=gains.armature,
         effort_limit=float(cast(ET.Element, joint.find("limit")).attrib["effort"]),
+        curve=mode_15_curve(joint.attrib["name"]),
       )
       for actuator in G1_ARTICULATION.actuators
       for joint in joints
@@ -148,14 +160,59 @@ def get_head_load_robot_cfg() -> EntityCfg:
         re.fullmatch(pattern, joint.attrib["name"])
         for pattern in actuator.target_names_expr
       )
+      for gains in (
+        WRIST_ACTUATOR
+        if "_wrist_" in joint.attrib["name"]
+        else cast(BuiltinPositionActuatorCfg, actuator),
+      )
     ),
   )
   cfg.collisions = (
     replace(
       cfg.collisions[0],
-      condim={FOOT_PATTERN: 3, HAND_PATTERN: 3, ".*_collision": 1},
-      priority=0,
-      friction={FOOT_PATTERN: (0.3,)},
+      contype={"head_platform_collision": 0, ".*_collision": 1},
+      conaffinity={ARM_PATTERN: 3, "head_platform_collision": 2, ".*_collision": 1},
+      condim={
+        FOOT_PATTERN: 3,
+        HAND_PATTERN: 3,
+        "head_platform_collision": 3,
+        ".*_collision": 1,
+      },
+      priority={"head_platform_collision": 1, ".*_collision": 0},
+      friction={FOOT_PATTERN: (0.3,), "head_platform_collision": (0.8,)},
     ),
   )
   return cfg
+
+
+def get_payload_spec() -> mujoco.MjSpec:
+  spec = mujoco.MjSpec()
+  body = spec.worldbody.add_body(name="head_payload")
+  body.add_freejoint(name="payload_freejoint")
+  body.add_geom(
+    name="payload_collision",
+    type=mujoco.mjtGeom.mjGEOM_BOX,
+    size=(0.15, 0.15, 0.15),
+    mass=1.0,
+    solref=PAYLOAD_SOLREF,
+    group=2,
+    rgba=(0.8, 0.45, 0.15, 1.0),
+  )
+  return spec
+
+
+def get_payload_cfg() -> EntityCfg:
+  return EntityCfg(
+    spec_fn=get_payload_spec,
+    init_state=EntityCfg.InitialStateCfg(pos=(0.0, 0.0, 1.5)),
+    collisions=(
+      CollisionCfg(
+        geom_names_expr=("payload_collision",),
+        contype=2,
+        conaffinity=0,
+        condim=3,
+        priority=1,
+        friction=(0.8, 0.005, 0.0001),
+      ),
+    ),
+  )

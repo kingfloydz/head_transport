@@ -1,4 +1,4 @@
-"""G1 velocity tracking with a rigid head payload."""
+"""G1 velocity tracking with a free payload and a temporal actor."""
 
 from mjlab.tasks.registry import register_mjlab_task
 from mjlab.tasks.velocity.config.g1.rl_cfg import unitree_g1_ppo_runner_cfg
@@ -8,6 +8,7 @@ from .env_cfg import head_load_velocity_env_cfg
 
 rl_cfg = unitree_g1_ppo_runner_cfg()
 rl_cfg.experiment_name = "g1_head_load_velocity"
+rl_cfg.actor.class_name = "mjlab.tasks.head_load_velocity.networks:TemporalActor"
 
 register_mjlab_task(
   task_id="Mjlab-Velocity-HeadLoad-Unitree-G1",
