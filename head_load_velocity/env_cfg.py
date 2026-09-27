@@ -20,7 +20,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from .asset import get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import PayloadMassUpper
-from .events import reset_payload
+from .events import reset_payload, reset_payload_size
 from .mdp import payload_lost_contact, payload_state
 from .networks import HISTORY_LENGTH
 from .torque_speed import TorqueSpeedActuatorCfg
@@ -82,7 +82,7 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     ),
   }
   cfg.curriculum = {"payload_mass_upper": CurriculumTermCfg(func=PayloadMassUpper)}
-  cfg.rewards["track_linear_velocity"].weight = 4.0
+  cfg.rewards["track_linear_velocity"].weight = 5.0
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
     func=mdp.joint_torques_l2,
     weight=-1e-5,
@@ -93,13 +93,10 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "reset_base": cfg.events["reset_base"],
     "reset_robot_joints": cfg.events["reset_robot_joints"],
     "payload_size": EventTermCfg(
-      func=dr.geom_size,
+      func=reset_payload_size,
       mode="reset",
       params={
         "asset_cfg": SceneEntityCfg("payload", geom_names=("payload_collision",)),
-        "operation": "abs",
-        "ranges": (0.025, 0.25),
-        "axes": [0, 1, 2],
       },
     ),
     "payload_mass": EventTermCfg(

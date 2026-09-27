@@ -7,12 +7,28 @@ import torch
 import warp as wp
 
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.envs.mdp.dr.geom import _recompute_geom_bounds
 from mjlab.managers.curriculum_manager import CurriculumManager
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_apply
 
 from .asset import PLATFORM_HALF_SIZE
+
+
+@requires_model_fields("geom_size", "geom_rbound", "geom_aabb")
+def reset_payload_size(
+  env: ManagerBasedRlEnv, env_ids: torch.Tensor, asset_cfg: SceneEntityCfg
+) -> None:
+  payload = env.scene[asset_cfg.name]
+  geom_id = payload.indexing.geom_ids[asset_cfg.geom_ids][0]
+  # MuJoCo box sizes are half-extents.
+  xy = 0.025 + 0.225 * torch.rand((len(env_ids), 2), device=env.device)
+  z = 0.005 + (xy.min(dim=-1, keepdim=True).values - 0.005) * torch.rand(
+    (len(env_ids), 1), device=env.device
+  )
+  env.sim.model.geom_size[env_ids, geom_id] = torch.cat((xy, z), dim=-1)
+  _recompute_geom_bounds(env, env_ids.to(dtype=torch.int), asset_cfg)
 
 
 @requires_model_fields("body_mass", "body_inertia", recompute=RecomputeLevel.set_const)
@@ -26,7 +42,7 @@ def reset_payload(
   if mass_kg is None:
     manager = cast(CurriculumManager, env.curriculum_manager)
     upper = manager.get_term_cfg("payload_mass_upper").func.upper
-    mass = 1.0 + (upper - 1.0) * torch.rand(len(env_ids), device=env.device)
+    mass = 0.5 + (upper - 0.5) * torch.rand(len(env_ids), device=env.device)
   else:
     mass = torch.full((len(env_ids),), mass_kg, device=env.device)
   payload = env.scene[asset_cfg.name]
