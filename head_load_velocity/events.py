@@ -42,7 +42,7 @@ def reset_payload(
   if mass_kg is None:
     manager = cast(CurriculumManager, env.curriculum_manager)
     upper = manager.get_term_cfg("payload_mass_upper").func.upper
-    mass = 0.5 + (upper - 0.5) * torch.rand(len(env_ids), device=env.device)
+    mass = 1.0 + (upper - 1.0) * torch.rand(len(env_ids), device=env.device)
   else:
     mass = torch.full((len(env_ids),), mass_kg, device=env.device)
   payload = env.scene[asset_cfg.name]
