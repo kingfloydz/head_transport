@@ -10,7 +10,7 @@ from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
-from mjlab.managers.observation_manager import ObservationTermCfg
+from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
@@ -21,7 +21,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from .asset import get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import PayloadMassUpper
 from .events import reset_payload, reset_payload_size
-from .mdp import payload_lost_contact, payload_state
+from .mdp import payload_lost_contact, payload_properties, payload_state
 from .networks import HISTORY_LENGTH
 from .torque_speed import TorqueSpeedActuatorCfg
 
@@ -46,6 +46,14 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.observations["actor"] = deepcopy(cfg.observations["actor"])
   cfg.observations["actor"].history_length = HISTORY_LENGTH + 1
   cfg.observations["actor"].flatten_history_dim = False
+  cfg.observations["teacher_dynamic"] = ObservationGroupCfg(
+    terms={"base_lin_vel": ObservationTermCfg(func=mdp.base_lin_vel)},
+    history_length=HISTORY_LENGTH + 1,
+    flatten_history_dim=False,
+  )
+  cfg.observations["teacher_static"] = ObservationGroupCfg(
+    terms={"payload_properties": ObservationTermCfg(func=payload_properties)},
+  )
   cfg.scene.sensors += (
     ContactSensorCfg(
       name="payload_platform_contact",

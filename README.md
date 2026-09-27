@@ -1,11 +1,13 @@
 ```bash
-git clone https://github.com/kingfloydz/head_transport.git
+git clone --branch load_property https://github.com/kingfloydz/head_transport.git
 cd head_transport
 python3 install.py
 ```
 
 ```bash
-git pull
+git fetch origin
+git switch load_property
+git pull --ff-only
 python3 install.py
 ```
 

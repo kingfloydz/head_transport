@@ -56,3 +56,10 @@ def payload_state(
     ),
     dim=-1,
   )
+
+
+def payload_properties(env: ManagerBasedRlEnv) -> torch.Tensor:
+  payload = env.scene["payload"]
+  mass = env.sim.model.body_mass[:, payload.indexing.root_body_id, None]
+  size = 2.0 * env.sim.model.geom_size[:, payload.indexing.geom_ids[0]]
+  return torch.cat((mass, size), dim=-1)

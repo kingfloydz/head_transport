@@ -7,7 +7,8 @@ from mjlab.tasks.velocity.rl import VelocityOnPolicyRunner
 from .env_cfg import head_load_velocity_env_cfg
 
 rl_cfg = unitree_g1_ppo_runner_cfg()
-rl_cfg.experiment_name = "g1_head_load_velocity"
+rl_cfg.experiment_name = "g1_head_load_property"
+rl_cfg.obs_groups["actor"] = ("actor", "teacher_dynamic", "teacher_static")
 rl_cfg.actor.class_name = "mjlab.tasks.head_load_velocity.networks:TemporalActor"
 
 register_mjlab_task(
