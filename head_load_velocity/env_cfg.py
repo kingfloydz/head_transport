@@ -105,6 +105,7 @@ def head_load_velocity_env_cfg(
     )
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
+  cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
     func=mdp.joint_torques_l2,
     weight=-1e-5,
