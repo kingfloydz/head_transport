@@ -1,52 +1,54 @@
-"""Six payload mass stages, promoted by the official episode-length metric."""
+"""Four-stage curriculum using completed episodes from the current stage."""
 
 from collections.abc import Callable
 from functools import partial
-from statistics import mean
 from typing import Any, cast
 
 import torch
 from rsl_rl.utils.logger import Logger
+from torch.distributed import all_reduce
 
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.managers.curriculum_manager import CurriculumManager, CurriculumTermCfg
 from mjlab.rl.runner import MjlabOnPolicyRunner
 
-MASS_UPPER_LEVELS = (10.0, 20.0, 30.0, 40.0, 50.0, 60.0)
+from .load_distribution import STAGE_LIMITS
 
 
-class PayloadMassUpper:
+class PayloadCurriculum:
   def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
-    self.stage = 0
-    self.upper = torch.tensor(MASS_UPPER_LEVELS[0], device=env.device)
+    self.stage = cfg.params["initial_stage"] - 1
+    self.episode_stage = torch.full((env.num_envs,), -1, device=env.device)
+    self.window = torch.zeros(2, dtype=torch.float64, device=env.device)
     self.iterations = 0
-    self.lengths: list[float] = []
 
-  def __call__(
-    self, env: ManagerBasedRlEnv, env_ids: torch.Tensor | slice
-  ) -> torch.Tensor:
-    return self.upper.clone()
+  def __call__(self, env: ManagerBasedRlEnv, env_ids, initial_stage: int):
+    lengths = env.episode_length_buf[env_ids]
+    eligible = (
+      (self.episode_stage[env_ids] == self.stage)
+      & env.termination_manager.dones[env_ids]
+      & (lengths > 0)
+    )
+    self.window[0] += lengths[eligible].sum() * env.step_dt
+    self.window[1] += eligible.sum()
+    self.episode_stage[env_ids] = self.stage
+    return {"stage": self.stage + 1, "eta_max": STAGE_LIMITS[self.stage][4]}
 
-  def log_iteration(
-    self, log: Callable, logger: Logger, step_dt: float, *args, **kwargs
-  ):
-    log(*args, **kwargs)
+  def log_iteration(self, log: Callable, logger: Logger, *args, **kwargs):
     self.iterations += 1
-    if logger.lenbuffer:
-      self.lengths.append(mean(logger.lenbuffer) * step_dt)
     if self.iterations % 100 == 0:
-      if self.lengths and mean(self.lengths) > 19.0:
-        self.stage = min(self.stage + 1, len(MASS_UPPER_LEVELS) - 1)
-        self.upper.fill_(MASS_UPPER_LEVELS[self.stage])
+      totals = self.window.clone()
       if logger.gpu_world_size > 1:
-        torch.distributed.broadcast(self.upper, src=0)
-      self.lengths.clear()
+        all_reduce(totals)
+      if totals[1] > 0 and totals[0] / totals[1] > 19.0:
+        self.stage = min(self.stage + 1, len(STAGE_LIMITS) - 1)
+      self.window.zero_()
+    log(*args, **kwargs)
 
 
 def bind_payload_curriculum(runner: MjlabOnPolicyRunner) -> None:
-  env = runner.env.unwrapped
-  manager = cast(CurriculumManager, env.curriculum_manager)
-  curriculum = manager.get_term_cfg("payload_mass_upper").func
+  manager = cast(CurriculumManager, runner.env.unwrapped.curriculum_manager)
+  curriculum = manager.get_term_cfg("payload_curriculum").func
   cast(Any, runner.logger).log = partial(
-    curriculum.log_iteration, runner.logger.log, runner.logger, env.step_dt
+    curriculum.log_iteration, runner.logger.log, runner.logger
   )

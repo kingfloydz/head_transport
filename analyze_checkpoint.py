@@ -15,11 +15,11 @@ from scipy.stats import pearsonr, spearmanr
 from tensordict import TensorDict
 
 from mjlab.envs import ManagerBasedRlEnv
-from mjlab.managers.curriculum_manager import CurriculumManager
 from mjlab.tasks.head_load_velocity import rl_cfg
 from mjlab.tasks.head_load_velocity.env_cfg import head_load_velocity_env_cfg
+from mjlab.tasks.head_load_velocity.load_distribution import STAGE_LIMITS, difficulty
 from mjlab.tasks.head_load_velocity.networks import TemporalActor
-from mjlab.utils.lab_api.math import euler_xyz_from_quat
+from mjlab.utils.lab_api.math import euler_xyz_from_quat, matrix_from_quat
 from mjlab.utils.torch import configure_torch_backends
 
 
@@ -31,10 +31,22 @@ def initial_properties(env):
   ground = env.scene["terrain"].indexing.geom_ids[0]
   size = 2 * model.geom_size[:, payload.indexing.geom_ids[0]]
   inertia = model.body_inertia[:, body]
+  mass = model.body_mass[:, body]
+  com = model.body_ipos[:, body]
+  axes = matrix_from_quat(model.body_iquat[:, body])
+  full_inertia = axes @ torch.diag_embed(inertia) @ axes.transpose(-1, -2)
+  robot_mass = model.body_mass[:, robot.indexing.body_ids].sum(-1)
+  metrics = difficulty(size, mass, com, full_inertia, robot_mass)
   columns = {
-    "mass_kg": model.body_mass[:, body],
+    "mass_kg": mass,
+    "robot_mass_kg": robot_mass,
+    **{
+      name: metrics[:, i]
+      for i, name in enumerate(("kappa_x", "kappa_y", "chi_x", "chi_y", "eta"))
+    },
+    **{f"payload_com_{axis}_m": com[:, i] for i, axis in enumerate("xyz")},
     **{f"size_{axis}_m": size[:, i] for i, axis in enumerate("xyz")},
-    **{f"inertia_{axis}": inertia[:, i] for i, axis in enumerate("xyz")},
+    **{f"principal_inertia_{i}": inertia[:, i] for i in range(3)},
     "inertia_ratio": inertia.max(-1).values / inertia.min(-1).values,
     "density_kg_m3": model.body_mass[:, body] / size.prod(-1),
     "torso_mass_kg": model.body_mass[:, torso],
@@ -217,7 +229,8 @@ def main():
   parser.add_argument("checkpoints", type=Path, nargs="+")
   parser.add_argument("--num-envs", type=int, default=16394)
   parser.add_argument("--episodes-per-env", type=int, default=1)
-  parser.add_argument("--mass-upper", type=float, default=60.0)
+  parser.add_argument("--stage", type=int, choices=(1, 2, 3, 4), default=1)
+  parser.add_argument("--platform-height", type=float, default=0.44)
   parser.add_argument("--seed", type=int, default=42)
   parser.add_argument("--device", default="cuda:0")
   parser.add_argument(
@@ -226,13 +239,12 @@ def main():
   parser.add_argument("--output", type=Path, default=Path("checkpoint_analysis"))
   args = parser.parse_args()
   configure_torch_backends()
-  cfg = head_load_velocity_env_cfg()
+  cfg = head_load_velocity_env_cfg(
+    platform_height=args.platform_height, payload_stage=args.stage
+  )
   cfg.scene.num_envs = args.num_envs
   cfg.seed = args.seed
   env = ManagerBasedRlEnv(cfg, device=args.device)
-  cast(CurriculumManager, env.curriculum_manager).get_term_cfg(
-    "payload_mass_upper"
-  ).func.upper.fill_(args.mass_upper)
   observations, _ = env.reset(seed=args.seed)
   actor_cfg = rl_cfg.actor
   actor = (
@@ -268,7 +280,10 @@ def main():
           "checkpoint": str(checkpoint.resolve()),
           "num_envs": args.num_envs,
           "episodes_per_env": args.episodes_per_env,
-          "mass_range": [1, args.mass_upper],
+          "stage": args.stage,
+          "stage_limits_kappa_xy_chi_xy_eta": STAGE_LIMITS[args.stage - 1],
+          "density_range_kg_m3": [40, 4000],
+          "platform_height": args.platform_height,
           "seed": args.seed,
           "stochastic": args.stochastic,
           "physics_dt": env.physics_dt,

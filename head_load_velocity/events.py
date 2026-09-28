@@ -1,4 +1,4 @@
-"""Reset a randomized free payload on the robot's platform."""
+"""Joint payload reset after robot domain randomization."""
 
 from typing import cast
 
@@ -7,65 +7,62 @@ import torch
 import warp as wp
 
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.envs.mdp.dr.body import _eigh_3x3_jacobi
 from mjlab.envs.mdp.dr.geom import _recompute_geom_bounds
 from mjlab.managers.curriculum_manager import CurriculumManager
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.utils.lab_api.math import quat_apply
+from mjlab.utils.lab_api.math import quat_apply, quat_from_matrix
 
 from .asset import PLATFORM_HALF_SIZE
+from .load_distribution import sample_payload
 
 
-@requires_model_fields("geom_size", "geom_rbound", "geom_aabb")
-def reset_payload_size(
-  env: ManagerBasedRlEnv, env_ids: torch.Tensor, asset_cfg: SceneEntityCfg
-) -> None:
-  payload = env.scene[asset_cfg.name]
-  geom_id = payload.indexing.geom_ids[asset_cfg.geom_ids][0]
-  # MuJoCo box sizes are half-extents.
-  xy = 0.025 + 0.225 * torch.rand((len(env_ids), 2), device=env.device)
-  z = 0.005 + (xy.min(dim=-1, keepdim=True).values - 0.005) * torch.rand(
-    (len(env_ids), 1), device=env.device
-  )
-  env.sim.model.geom_size[env_ids, geom_id] = torch.cat((xy, z), dim=-1)
-  _recompute_geom_bounds(env, env_ids.to(dtype=torch.int), asset_cfg)
-
-
-@requires_model_fields("body_mass", "body_inertia", recompute=RecomputeLevel.set_const)
+@requires_model_fields(
+  "geom_size",
+  "geom_rbound",
+  "geom_aabb",
+  "body_mass",
+  "body_ipos",
+  "body_inertia",
+  "body_iquat",
+  recompute=RecomputeLevel.set_const,
+)
 def reset_payload(
   env: ManagerBasedRlEnv,
   env_ids: torch.Tensor,
   asset_cfg: SceneEntityCfg,
   platform_cfg: SceneEntityCfg,
-  mass_kg: float | None = None,
 ) -> None:
-  if mass_kg is None:
-    manager = cast(CurriculumManager, env.curriculum_manager)
-    upper = manager.get_term_cfg("payload_mass_upper").func.upper
-    mass = 1.0 + (upper - 1.0) * torch.rand(len(env_ids), device=env.device)
-  else:
-    mass = torch.full((len(env_ids),), mass_kg, device=env.device)
-  payload = env.scene[asset_cfg.name]
-  body_id = payload.indexing.root_body_id
-  geom_id = payload.indexing.geom_ids[asset_cfg.geom_ids][0]
-  half_size = env.sim.model.geom_size[env_ids, geom_id]
-  env.sim.model.body_mass[env_ids, body_id] = mass
-  squared = half_size.square()
-  env.sim.model.body_inertia[env_ids, body_id] = (
-    mass[:, None] * (squared.sum(dim=-1, keepdim=True) - squared) / 3.0
-  )
+  manager = cast(CurriculumManager, env.curriculum_manager)
+  stage = manager.get_term_cfg("payload_curriculum").func.stage
+  robot, payload = env.scene[platform_cfg.name], env.scene[asset_cfg.name]
+  model = env.sim.model
+  robot_mass = model.body_mass[env_ids][:, robot.indexing.body_ids].sum(-1)
+  size, mass, com, inertia, _ = sample_payload(robot_mass, stage)
+  body = payload.indexing.root_body_id
+  geom = payload.indexing.geom_ids[asset_cfg.geom_ids][0]
+  principal, axes = _eigh_3x3_jacobi(inertia)
+  axes[:, :, 2] *= torch.linalg.det(axes).sign()[:, None]
+  model.geom_size[env_ids, geom] = size / 2
+  model.body_mass[env_ids, body] = mass
+  model.body_ipos[env_ids, body] = com
+  model.body_inertia[env_ids, body] = principal
+  model.body_iquat[env_ids, body] = quat_from_matrix(axes)
+  _recompute_geom_bounds(env, env_ids.to(dtype=torch.int), asset_cfg)
 
-  # Robot reset events have written qpos; refresh only forward kinematics.
   with wp.ScopedDevice(env.sim.wp_device):
     mjwarp.kinematics(env.sim.wp_model, env.sim.wp_data)
-  robot = env.scene[platform_cfg.name]
   position = robot.data.site_pos_w[env_ids][:, platform_cfg.site_ids].squeeze(1)
   rotation = robot.data.site_quat_w[env_ids][:, platform_cfg.site_ids].squeeze(1)
-  offset = torch.zeros_like(position)
-  offset[:, 2] = PLATFORM_HALF_SIZE[2] + half_size[:, 2]
-  payload.write_root_link_pose_to_sim(
-    torch.cat((position + quat_apply(rotation, offset), rotation), dim=-1), env_ids
-  )
+  top_offset = torch.zeros_like(position)
+  top_offset[:, 2] = PLATFORM_HALF_SIZE[2]
+  position = position + quat_apply(rotation, top_offset)
+  position[:, :2] -= com[:, :2]
+  position[:, 2] += size[:, 2] / 2
+  rotation = torch.zeros((len(env_ids), 4), device=env.device)
+  rotation[:, 0] = 1
+  payload.write_root_link_pose_to_sim(torch.cat((position, rotation), -1), env_ids)
   payload.write_root_link_velocity_to_sim(
-    torch.zeros((len(env_ids), 6), device=env.device), env_ids
+    torch.zeros_like(position).repeat(1, 2), env_ids
   )

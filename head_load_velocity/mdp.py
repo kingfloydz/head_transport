@@ -32,7 +32,7 @@ def payload_state(
   rotation = torch.stack(euler_xyz_from_quat(payload.data.root_link_quat_w), dim=-1)
   velocity = quat_apply_inverse(
     platform_quat,
-    payload.data.root_link_lin_vel_w
+    payload.data.root_com_lin_vel_w
     - platform_vel
     - torch.cross(platform_omega, offset, dim=-1),
   )

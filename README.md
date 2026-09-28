@@ -13,12 +13,13 @@ python3 install.py
 
 ```bash
 python3 analyze_checkpoint.py /path/to/model_1000.pt \
-  --num-envs 16394 --mass-upper 60 --episodes-per-env 1
+  --num-envs 16394 --stage 1 --platform-height 0.44 --episodes-per-env 1
 ```
 
 ```bash
 MUJOCO_GL=disable python3 -m mjlab.scripts.train \
   Mjlab-Velocity-HeadLoad-Unitree-G1 \
+  --env.platform-height 0.44 --env.payload-stage 1 \
   --agent.logger tensorboard
 ```
 
@@ -30,7 +31,7 @@ MUJOCO_GL=disable python3 -m mjlab.scripts.play \
 ```
 
 ```bash
-HEAD_LOAD_MASS_KG=20 MUJOCO_GL=disable python3 -m mjlab.scripts.play \
+HEAD_LOAD_STAGE=4 HEAD_PLATFORM_HEIGHT=0.44 MUJOCO_GL=disable python3 -m mjlab.scripts.play \
   Mjlab-Velocity-HeadLoad-Unitree-G1 \
   --checkpoint-file /path/to/model_1000.pt \
   --num-envs 1 --viewer viser

@@ -2,6 +2,8 @@
 
 import os
 from copy import deepcopy
+from dataclasses import dataclass, fields
+from functools import partial, update_wrapper
 from typing import cast
 
 from mjlab.entity import EntityArticulationInfoCfg
@@ -18,15 +20,31 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
-from .asset import get_head_load_robot_cfg, get_payload_cfg
-from .curriculum import PayloadMassUpper
-from .events import reset_payload, reset_payload_size
+from .asset import get_head_load_robot_cfg, get_payload_cfg, get_spec
+from .curriculum import PayloadCurriculum
+from .events import reset_payload
 from .mdp import payload_lost_contact, payload_state
 from .networks import HISTORY_LENGTH
 from .torque_speed import TorqueSpeedActuatorCfg
 
 
-def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+@dataclass(kw_only=True)
+class HeadLoadEnvCfg(ManagerBasedRlEnvCfg):
+  platform_height: float = 0.44
+  """Platform center height in torso_link coordinates, in metres."""
+  payload_stage: int = 1
+  """Initial joint curriculum stage (1 through 4)."""
+
+  def __post_init__(self):
+    self.scene.entities["robot"].spec_fn = update_wrapper(
+      partial(get_spec, platform_height=self.platform_height), get_spec
+    )
+    self.curriculum["payload_curriculum"].params["initial_stage"] = self.payload_stage
+
+
+def head_load_velocity_env_cfg(
+  play: bool = False, platform_height: float = 0.44, payload_stage: int = 1
+) -> HeadLoadEnvCfg:
   cfg = unitree_g1_flat_env_cfg(play=play)
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
   cfg.scene.entities["payload"] = get_payload_cfg()
@@ -81,7 +99,11 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       ),
     ),
   }
-  cfg.curriculum = {"payload_mass_upper": CurriculumTermCfg(func=PayloadMassUpper)}
+  cfg.curriculum = {
+    "payload_curriculum": CurriculumTermCfg(
+      func=PayloadCurriculum, params={"initial_stage": 1}
+    )
+  }
   cfg.rewards["track_linear_velocity"].weight = 5.0
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
     func=mdp.joint_torques_l2,
@@ -92,21 +114,6 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events = {
     "reset_base": cfg.events["reset_base"],
     "reset_robot_joints": cfg.events["reset_robot_joints"],
-    "payload_size": EventTermCfg(
-      func=reset_payload_size,
-      mode="reset",
-      params={
-        "asset_cfg": SceneEntityCfg("payload", geom_names=("payload_collision",)),
-      },
-    ),
-    "payload_mass": EventTermCfg(
-      func=reset_payload,
-      mode="reset",
-      params={
-        "asset_cfg": SceneEntityCfg("payload", geom_names=("payload_collision",)),
-        "platform_cfg": SceneEntityCfg("robot", site_names=("head_platform",)),
-      },
-    ),
     "torso_mass": EventTermCfg(
       func=dr.body_mass,
       mode="reset",
@@ -135,6 +142,14 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         "axes": [0],
       },
     ),
+    "payload": EventTermCfg(
+      func=reset_payload,
+      mode="reset",
+      params={
+        "asset_cfg": SceneEntityCfg("payload", geom_names=("payload_collision",)),
+        "platform_cfg": SceneEntityCfg("robot", site_names=("head_platform",)),
+      },
+    ),
     "push_robot": EventTermCfg(
       func=mdp.apply_body_impulse,
       mode="step",
@@ -147,6 +162,11 @@ def head_load_velocity_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       },
     ),
   }
-  if play and (mass_kg := os.getenv("HEAD_LOAD_MASS_KG")) is not None:
-    cfg.events["payload_mass"].params["mass_kg"] = float(mass_kg)
-  return cfg
+  if play:
+    platform_height = float(os.getenv("HEAD_PLATFORM_HEIGHT", str(platform_height)))
+    payload_stage = int(os.getenv("HEAD_LOAD_STAGE", str(payload_stage)))
+  return HeadLoadEnvCfg(
+    **{field.name: getattr(cfg, field.name) for field in fields(cfg)},
+    platform_height=platform_height,
+    payload_stage=payload_stage,
+  )

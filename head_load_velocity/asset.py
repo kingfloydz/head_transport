@@ -39,7 +39,7 @@ WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
 )
 
 
-def get_spec() -> mujoco.MjSpec:
+def get_spec(platform_height: float = PLATFORM_POS[2]) -> mujoco.MjSpec:
   root = ET.parse(URDF_PATH).getroot()
   compiler = cast(ET.Element, root.find("mujoco/compiler"))
   compiler.set("meshdir", MESH_DIR.as_posix())
@@ -122,7 +122,7 @@ def get_spec() -> mujoco.MjSpec:
   spec.body("torso_link").add_geom(
     name="head_platform_collision",
     type=mujoco.mjtGeom.mjGEOM_BOX,
-    pos=PLATFORM_POS,
+    pos=(0.0, 0.0, platform_height),
     size=PLATFORM_HALF_SIZE,
     mass=0.0,
     group=2,
@@ -132,7 +132,7 @@ def get_spec() -> mujoco.MjSpec:
   )
   spec.body("torso_link").add_site(
     name="head_platform",
-    pos=PLATFORM_POS,
+    pos=(0.0, 0.0, platform_height),
     size=(0.005,) * 3,
     group=5,
   )
@@ -188,7 +188,14 @@ def get_head_load_robot_cfg() -> EntityCfg:
 def get_payload_spec() -> mujoco.MjSpec:
   spec = mujoco.MjSpec()
   body = spec.worldbody.add_body(name="head_payload")
-  body.add_freejoint(name="payload_freejoint")
+  body.add_freejoint(
+    name="payload_freejoint", align=mujoco.mjtAlignFree.mjALIGNFREE_FALSE
+  )
+  # Reserve a full mass-matrix block before runtime COM/principal-axis DR.
+  body.explicitinertial = True
+  body.mass = 1.0
+  body.ipos[:] = (0.01, 0.0, 0.0)
+  body.inertia[:] = (0.015, 0.015, 0.015)
   body.add_geom(
     name="payload_collision",
     type=mujoco.mjtGeom.mjGEOM_BOX,
