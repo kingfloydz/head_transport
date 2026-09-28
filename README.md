@@ -5,8 +5,15 @@ python3 install.py
 ```
 
 ```bash
-git pull
+git fetch origin
+git switch main
+git pull --ff-only
 python3 install.py
+```
+
+```bash
+python3 analyze_checkpoint.py /path/to/model_1000.pt \
+  --num-envs 16394 --mass-upper 60 --episodes-per-env 1
 ```
 
 ```bash

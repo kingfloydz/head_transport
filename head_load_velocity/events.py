@@ -62,7 +62,7 @@ def reset_payload(
   position = robot.data.site_pos_w[env_ids][:, platform_cfg.site_ids].squeeze(1)
   rotation = robot.data.site_quat_w[env_ids][:, platform_cfg.site_ids].squeeze(1)
   offset = torch.zeros_like(position)
-  offset[:, 2] = PLATFORM_HALF_SIZE[2] + half_size[:, 2] + 0.001
+  offset[:, 2] = PLATFORM_HALF_SIZE[2] + half_size[:, 2]
   payload.write_root_link_pose_to_sim(
     torch.cat((position + quat_apply(rotation, offset), rotation), dim=-1), env_ids
   )
