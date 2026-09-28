@@ -12,7 +12,7 @@ from mjlab.envs.mdp.dr.geom import _recompute_geom_bounds
 from mjlab.managers.curriculum_manager import CurriculumManager
 from mjlab.managers.event_manager import RecomputeLevel, requires_model_fields
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.utils.lab_api.math import quat_apply, quat_from_matrix
+from mjlab.utils.lab_api.math import quat_apply, quat_from_matrix, yaw_quat
 
 from .asset import PLATFORM_HALF_SIZE
 from .load_distribution import sample_payload
@@ -58,10 +58,10 @@ def reset_payload(
   top_offset = torch.zeros_like(position)
   top_offset[:, 2] = PLATFORM_HALF_SIZE[2]
   position = position + quat_apply(rotation, top_offset)
-  position[:, :2] -= com[:, :2]
-  position[:, 2] += size[:, 2] / 2
-  rotation = torch.zeros((len(env_ids), 4), device=env.device)
-  rotation[:, 0] = 1
+  rotation = yaw_quat(rotation)
+  offset = -com
+  offset[:, 2] = size[:, 2] / 2
+  position += quat_apply(rotation, offset)
   payload.write_root_link_pose_to_sim(torch.cat((position, rotation), -1), env_ids)
   payload.write_root_link_velocity_to_sim(
     torch.zeros_like(position).repeat(1, 2), env_ids
