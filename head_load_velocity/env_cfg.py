@@ -86,6 +86,7 @@ def head_load_velocity_env_cfg(
     "twist": UniformVelocityCommandCfg(
       entity_name="robot",
       resampling_time_range=(3.0, 8.0),
+      rel_standing_envs=0.1,
       ranges=UniformVelocityCommandCfg.Ranges(
         lin_vel_x=(-1.0, 1.5),
         lin_vel_y=(-1.0, 1.0),
@@ -100,6 +101,7 @@ def head_load_velocity_env_cfg(
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].weight = 4.0
+  cfg.rewards["track_angular_velocity"].params["std"] = 0.25
   cfg.rewards["foot_distance"] = RewardTermCfg(
     func=foot_distance_penalty,
     weight=-1.0,

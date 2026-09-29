@@ -25,7 +25,7 @@ def payload_lost_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tens
   sensor = cast(ContactSensor, env.scene[sensor_name])
   air_time = cast(torch.Tensor, sensor.data.current_air_time).squeeze(-1)
   # Compare physics ticks so float32 accumulation cannot add an extra policy step.
-  return torch.round(air_time / env.physics_dt) >= math.ceil(0.4 / env.physics_dt)
+  return torch.round(air_time / env.physics_dt) >= math.ceil(0.3 / env.physics_dt)
 
 
 def payload_state(
