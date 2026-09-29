@@ -3,7 +3,6 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, fields
-from functools import partial, update_wrapper
 from typing import cast
 
 from mjlab.entity import EntityArticulationInfoCfg
@@ -20,30 +19,25 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
-from .asset import get_head_load_robot_cfg, get_payload_cfg, get_spec
+from .asset import get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import PayloadCurriculum
 from .events import reset_payload
-from .mdp import payload_lost_contact, payload_state
+from .mdp import foot_distance_penalty, payload_lost_contact, payload_state
 from .networks import HISTORY_LENGTH
 from .torque_speed import TorqueSpeedActuatorCfg
 
 
 @dataclass(kw_only=True)
 class HeadLoadEnvCfg(ManagerBasedRlEnvCfg):
-  platform_height: float = 0.44
-  """Platform center height in torso_link coordinates, in metres."""
   payload_stage: int = 1
   """Initial joint curriculum stage (1 through 4)."""
 
   def __post_init__(self):
-    self.scene.entities["robot"].spec_fn = update_wrapper(
-      partial(get_spec, platform_height=self.platform_height), get_spec
-    )
     self.curriculum["payload_curriculum"].params["initial_stage"] = self.payload_stage
 
 
 def head_load_velocity_env_cfg(
-  play: bool = False, platform_height: float = 0.44, payload_stage: int = 1
+  play: bool = False, payload_stage: int = 1
 ) -> HeadLoadEnvCfg:
   cfg = unitree_g1_flat_env_cfg(play=play)
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
@@ -105,7 +99,17 @@ def head_load_velocity_env_cfg(
     )
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
-  cfg.rewards["track_angular_velocity"].weight = 3.0
+  cfg.rewards["track_angular_velocity"].weight = 4.0
+  cfg.rewards["foot_distance"] = RewardTermCfg(
+    func=foot_distance_penalty,
+    weight=-1.0,
+    params={
+      "asset_cfg": SceneEntityCfg(
+        "robot", site_names=("left_foot", "right_foot"), preserve_order=True
+      ),
+      "minimum_distance": 0.11,
+    },
+  )
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
     func=mdp.joint_torques_l2,
     weight=-1e-5,
@@ -164,10 +168,8 @@ def head_load_velocity_env_cfg(
     ),
   }
   if play:
-    platform_height = float(os.getenv("HEAD_PLATFORM_HEIGHT", str(platform_height)))
     payload_stage = int(os.getenv("HEAD_LOAD_STAGE", str(payload_stage)))
   return HeadLoadEnvCfg(
     **{field.name: getattr(cfg, field.name) for field in fields(cfg)},
-    platform_height=platform_height,
     payload_stage=payload_stage,
   )

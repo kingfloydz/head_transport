@@ -11,6 +11,16 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, quat_apply_inverse
 
 
+def foot_distance_penalty(
+  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg, minimum_distance: float = 0.11
+) -> torch.Tensor:
+  """Rickshaw's signed lateral foot separation penalty, including crossed feet."""
+  robot = env.scene[asset_cfg.name]
+  feet = robot.data.site_pos_w[:, asset_cfg.site_ids]
+  delta = quat_apply_inverse(robot.data.root_link_quat_w, feet[:, 0] - feet[:, 1])
+  return ((minimum_distance - delta[:, 1]) / minimum_distance).clamp_min(0).square()
+
+
 def payload_lost_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   sensor = cast(ContactSensor, env.scene[sensor_name])
   air_time = cast(torch.Tensor, sensor.data.current_air_time).squeeze(-1)

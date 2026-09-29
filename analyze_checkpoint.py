@@ -16,6 +16,7 @@ from tensordict import TensorDict
 
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.head_load_velocity import rl_cfg
+from mjlab.tasks.head_load_velocity.asset import PLATFORM_POS
 from mjlab.tasks.head_load_velocity.env_cfg import head_load_velocity_env_cfg
 from mjlab.tasks.head_load_velocity.load_distribution import STAGE_LIMITS, difficulty
 from mjlab.tasks.head_load_velocity.networks import TemporalActor
@@ -230,7 +231,6 @@ def main():
   parser.add_argument("--num-envs", type=int, default=16394)
   parser.add_argument("--episodes-per-env", type=int, default=1)
   parser.add_argument("--stage", type=int, choices=(1, 2, 3, 4), default=1)
-  parser.add_argument("--platform-height", type=float, default=0.44)
   parser.add_argument("--seed", type=int, default=42)
   parser.add_argument("--device", default="cuda:0")
   parser.add_argument(
@@ -239,9 +239,7 @@ def main():
   parser.add_argument("--output", type=Path, default=Path("checkpoint_analysis"))
   args = parser.parse_args()
   configure_torch_backends()
-  cfg = head_load_velocity_env_cfg(
-    platform_height=args.platform_height, payload_stage=args.stage
-  )
+  cfg = head_load_velocity_env_cfg(payload_stage=args.stage)
   cfg.scene.num_envs = args.num_envs
   cfg.seed = args.seed
   env = ManagerBasedRlEnv(cfg, device=args.device)
@@ -283,7 +281,7 @@ def main():
           "stage": args.stage,
           "stage_limits_kappa_xy_chi_xy_eta": STAGE_LIMITS[args.stage - 1],
           "density_range_kg_m3": [40, 4000],
-          "platform_height": args.platform_height,
+          "platform_height": PLATFORM_POS[2],
           "seed": args.seed,
           "stochastic": args.stochastic,
           "physics_dt": env.physics_dt,

@@ -27,7 +27,7 @@ MESH_DIR = URDF_PATH.parent / "meshes"
 FOOT_PATTERN = r"^(left|right)_foot[1-7]_collision$"
 HAND_PATTERN = r"^(left|right)_hand_collision$"
 ARM_PATTERN = r"^(left|right)_(shoulder|elbow|wrist|hand).*_collision$"
-PLATFORM_POS = (0.0, 0.0, 0.44)
+PLATFORM_POS = (0.0, 0.0, 0.38)
 PLATFORM_HALF_SIZE = (0.1, 0.1, 0.01)
 PAYLOAD_SOLREF = (0.01, 1.2)
 ARMATURE_5010 = 0.0021812
@@ -39,7 +39,7 @@ WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
 )
 
 
-def get_spec(platform_height: float = PLATFORM_POS[2]) -> mujoco.MjSpec:
+def get_spec() -> mujoco.MjSpec:
   root = ET.parse(URDF_PATH).getroot()
   compiler = cast(ET.Element, root.find("mujoco/compiler"))
   compiler.set("meshdir", MESH_DIR.as_posix())
@@ -122,7 +122,7 @@ def get_spec(platform_height: float = PLATFORM_POS[2]) -> mujoco.MjSpec:
   spec.body("torso_link").add_geom(
     name="head_platform_collision",
     type=mujoco.mjtGeom.mjGEOM_BOX,
-    pos=(0.0, 0.0, platform_height),
+    pos=PLATFORM_POS,
     size=PLATFORM_HALF_SIZE,
     mass=0.0,
     group=2,
@@ -132,7 +132,7 @@ def get_spec(platform_height: float = PLATFORM_POS[2]) -> mujoco.MjSpec:
   )
   spec.body("torso_link").add_site(
     name="head_platform",
-    pos=(0.0, 0.0, platform_height),
+    pos=PLATFORM_POS,
     size=(0.005,) * 3,
     group=5,
   )
