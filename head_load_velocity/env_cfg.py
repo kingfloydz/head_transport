@@ -102,6 +102,23 @@ def head_load_velocity_env_cfg(
   cfg.rewards["track_linear_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].weight = 4.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.25
+  cfg.rewards["pose"].weight = 0.5
+  cfg.rewards["upright"].weight = 0.5
+  cfg.rewards["body_ang_vel"].weight = -0.02
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.06
+  del cfg.rewards["foot_swing_height"]
+  pose = cfg.rewards["pose"].params
+  pose["std_walking"].update(
+    {
+      ".*waist_roll.*": 0.2,
+      ".*waist_pitch.*": 0.2,
+      ".*shoulder_pitch.*": 0.3,
+      ".*shoulder_roll.*": 0.3,
+      ".*shoulder_yaw.*": 0.3,
+      ".*elbow.*": 0.3,
+    }
+  )
+  pose["std_standing"] = pose["std_walking"].copy()
   cfg.rewards["foot_distance"] = RewardTermCfg(
     func=foot_distance_penalty,
     weight=-1.0,
