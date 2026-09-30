@@ -100,7 +100,6 @@ def head_load_velocity_env_cfg(
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4
-  cfg.rewards["foot_clearance"].params["target_height"] = 0.08
   cfg.rewards["foot_distance"] = RewardTermCfg(
     func=foot_distance_penalty,
     weight=-1.0,
@@ -108,7 +107,7 @@ def head_load_velocity_env_cfg(
       "asset_cfg": SceneEntityCfg(
         "robot", site_names=("left_foot", "right_foot"), preserve_order=True
       ),
-      "minimum_distance": 0.1,
+      "minimum_distance": 0.11,
     },
   )
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
@@ -135,7 +134,7 @@ def head_load_velocity_env_cfg(
       params={
         "asset_cfg": SceneEntityCfg("robot", body_names=("torso_link",)),
         "operation": "add",
-        "ranges": {0: (-0.05, 0.05), 1: (-0.05, 0.05), 2: (-0.05, 0.05)},
+        "ranges": {0: (-0.04, 0.04), 1: (-0.04, 0.04), 2: (-0.04, 0.04)},
       },
     ),
     "terrain_friction": EventTermCfg(
@@ -144,7 +143,7 @@ def head_load_velocity_env_cfg(
       params={
         "asset_cfg": SceneEntityCfg("terrain", geom_names=("terrain",)),
         "operation": "abs",
-        "ranges": (0.3, 1.2),
+        "ranges": (0.5, 1.2),
         "axes": [0],
       },
     ),
