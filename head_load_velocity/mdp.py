@@ -11,6 +11,15 @@ from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, quat_apply_inverse
 
 
+def track_yaw_velocity(
+  env: ManagerBasedRlEnv, std: float, command_name: str
+) -> torch.Tensor:
+  """Track body-frame yaw angular velocity without roll/pitch terms."""
+  command = cast(torch.Tensor, env.command_manager.get_command(command_name))
+  actual = env.scene["robot"].data.root_link_ang_vel_b[:, 2]
+  return torch.exp(-torch.square(command[:, 2] - actual) / std**2)
+
+
 def foot_distance_penalty(
   env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg, minimum_distance: float = 0.1
 ) -> torch.Tensor:

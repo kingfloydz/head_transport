@@ -22,7 +22,12 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from .asset import get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import PayloadCurriculum
 from .events import reset_payload
-from .mdp import foot_distance_penalty, payload_lost_contact, payload_state
+from .mdp import (
+  foot_distance_penalty,
+  payload_lost_contact,
+  payload_state,
+  track_yaw_velocity,
+)
 from .networks import HISTORY_LENGTH
 from .torque_speed import TorqueSpeedActuatorCfg
 
@@ -92,6 +97,7 @@ def head_load_velocity_env_cfg(
     )
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
+  cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4
   cfg.rewards["foot_clearance"].params["target_height"] = 0.08
