@@ -55,7 +55,6 @@ def head_load_velocity_env_cfg(
     )
   cfg.scene.num_envs = 4096
   cfg.episode_length_s = 20.0
-  del cfg.observations["actor"].terms["base_lin_vel"]
   cfg.observations["actor"] = deepcopy(cfg.observations["actor"])
   cfg.observations["actor"].history_length = HISTORY_LENGTH + 1
   cfg.observations["actor"].flatten_history_dim = False
