@@ -20,7 +20,6 @@ from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from .asset import get_head_load_robot_cfg, get_payload_cfg
-from .commands import HeadLoadVelocityCommandCfg
 from .curriculum import PayloadCurriculum
 from .events import reset_payload
 from .mdp import foot_distance_penalty, payload_lost_contact, payload_state
@@ -83,19 +82,10 @@ def head_load_velocity_env_cfg(
     params={"sensor_name": "payload_platform_contact"},
   )
 
-  cfg.commands = {
-    "twist": HeadLoadVelocityCommandCfg(
-      entity_name="robot",
-      resampling_time_range=(3.0, 8.0),
-      rel_forward_envs=0.3,
-      rel_standing_envs=0.1,
-      ranges=UniformVelocityCommandCfg.Ranges(
-        lin_vel_x=(-1.0, 1.5),
-        lin_vel_y=(-1.0, 1.0),
-        ang_vel_z=(-0.5, 0.5),
-      ),
-    ),
-  }
+  twist = cast(UniformVelocityCommandCfg, cfg.commands["twist"])
+  twist.ranges.lin_vel_x = (-1.0, 1.5)
+  twist.ranges.lin_vel_y = (-1.0, 1.0)
+  twist.ranges.ang_vel_z = (-0.5, 0.5)
   cfg.curriculum = {
     "payload_curriculum": CurriculumTermCfg(
       func=PayloadCurriculum, params={"initial_stage": 1}
