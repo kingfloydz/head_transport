@@ -16,6 +16,7 @@ from mjlab.utils.lab_api.math import quat_apply, quat_from_matrix, yaw_quat
 
 from .asset import PLATFORM_HALF_SIZE
 from .load_distribution import sample_payload
+from .stability import StabilitySensor
 
 
 @requires_model_fields(
@@ -58,7 +59,11 @@ def reset_payload(
   top_offset = torch.zeros_like(position)
   top_offset[:, 2] = PLATFORM_HALF_SIZE[2]
   position = position + quat_apply(rotation, top_offset)
-  rotation = yaw_quat(rotation)
+  platform_rotation = rotation
+  rotation = yaw_quat(platform_rotation)
+  cast(StabilitySensor, env.scene["payload_stability"]).set_payload(
+    env_ids, mass, size, com, inertia, platform_rotation, rotation
+  )
   offset = -com
   offset[:, 2] = size[:, 2] / 2
   position += quat_apply(rotation, offset)

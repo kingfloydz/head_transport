@@ -29,6 +29,7 @@ from .mdp import (
   track_yaw_velocity,
 )
 from .networks import HISTORY_LENGTH
+from .stability import StabilitySensorCfg, stability_penalty
 from .torque_speed import TorqueSpeedActuatorCfg
 
 
@@ -64,6 +65,7 @@ def head_load_velocity_env_cfg(
   cfg.observations["actor"].history_length = HISTORY_LENGTH + 1
   cfg.observations["actor"].flatten_history_dim = False
   cfg.scene.sensors += (
+    StabilitySensorCfg(name="payload_stability"),
     ContactSensorCfg(
       name="payload_platform_contact",
       primary=ContactMatch(mode="geom", pattern="payload_collision", entity="payload"),
@@ -97,6 +99,7 @@ def head_load_velocity_env_cfg(
     )
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
+  cfg.rewards["stability_margin"] = RewardTermCfg(func=stability_penalty, weight=-0.2)
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4
