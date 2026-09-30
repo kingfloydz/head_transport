@@ -36,22 +36,10 @@ def reset_payload(
 ) -> None:
   manager = cast(CurriculumManager, env.curriculum_manager)
   stage = manager.get_term_cfg("payload_curriculum").func.stage
-  if stage == 0:
-    payload = env.scene[asset_cfg.name]
-    pose = torch.zeros((len(env_ids), 7), device=env.device)
-    pose[:, 0] = 1000.0
-    pose[:, 2] = 2.0
-    pose[:, 3] = 1.0
-    payload.write_root_link_pose_to_sim(pose, env_ids)
-    payload.write_root_link_velocity_to_sim(
-      torch.zeros((len(env_ids), 6), device=env.device), env_ids
-    )
-    return
-
   robot, payload = env.scene[platform_cfg.name], env.scene[asset_cfg.name]
   model = env.sim.model
   robot_mass = model.body_mass[env_ids][:, robot.indexing.body_ids].sum(-1)
-  size, mass, com, inertia, _ = sample_payload(robot_mass, stage - 1)
+  size, mass, com, inertia, _ = sample_payload(robot_mass, stage)
   body = payload.indexing.root_body_id
   geom = payload.indexing.geom_ids[asset_cfg.geom_ids][0]
   principal, axes = _eigh_3x3_jacobi(inertia)
