@@ -230,7 +230,7 @@ def main():
   parser.add_argument("checkpoints", type=Path, nargs="+")
   parser.add_argument("--num-envs", type=int, default=16394)
   parser.add_argument("--episodes-per-env", type=int, default=1)
-  parser.add_argument("--stage", type=int, choices=(1, 2, 3, 4), default=1)
+  parser.add_argument("--stage", type=int, choices=(2, 3, 4, 5), default=2)
   parser.add_argument("--seed", type=int, default=42)
   parser.add_argument("--device", default="cuda:0")
   parser.add_argument(
@@ -279,7 +279,7 @@ def main():
           "num_envs": args.num_envs,
           "episodes_per_env": args.episodes_per_env,
           "stage": args.stage,
-          "stage_limits_kappa_xy_chi_xy_eta": STAGE_LIMITS[args.stage - 1],
+          "stage_limits_kappa_xy_chi_xy_eta": STAGE_LIMITS[args.stage - 2],
           "density_range_kg_m3": [40, 4000],
           "platform_height": PLATFORM_POS[2],
           "seed": args.seed,

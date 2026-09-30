@@ -22,7 +22,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from .asset import get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import PayloadCurriculum
 from .events import reset_payload
-from .mdp import foot_distance_penalty, payload_lost_contact, payload_state
+from .mdp import PayloadState, foot_distance_penalty, payload_lost_contact
 from .networks import HISTORY_LENGTH
 from .torque_speed import TorqueSpeedActuatorCfg
 
@@ -30,7 +30,7 @@ from .torque_speed import TorqueSpeedActuatorCfg
 @dataclass(kw_only=True)
 class HeadLoadEnvCfg(ManagerBasedRlEnvCfg):
   payload_stage: int = 1
-  """Initial joint curriculum stage (1 through 4)."""
+  """Initial joint curriculum stage (1 through 5)."""
 
   def __post_init__(self):
     self.curriculum["payload_curriculum"].params["initial_stage"] = self.payload_stage
@@ -71,7 +71,7 @@ def head_load_velocity_env_cfg(
     ),
   )
   cfg.observations["critic"].terms["payload_state"] = ObservationTermCfg(
-    func=payload_state,
+    func=PayloadState,
     params={
       "platform_cfg": SceneEntityCfg("robot", site_names=("head_platform",)),
       "sensor_name": "payload_platform_contact",

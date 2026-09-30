@@ -6,6 +6,8 @@ from typing import cast
 import torch
 
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.managers.curriculum_manager import CurriculumManager
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, quat_apply_inverse
@@ -24,8 +26,27 @@ def foot_distance_penalty(
 def payload_lost_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   sensor = cast(ContactSensor, env.scene[sensor_name])
   air_time = cast(torch.Tensor, sensor.data.current_air_time).squeeze(-1)
+  manager = cast(CurriculumManager, env.curriculum_manager)
+  loaded = manager.get_term_cfg("payload_curriculum").func.episode_stage > 0
   # Compare physics ticks so float32 accumulation cannot add an extra policy step.
-  return torch.round(air_time / env.physics_dt) >= math.ceil(0.3 / env.physics_dt)
+  return loaded & (
+    torch.round(air_time / env.physics_dt) >= math.ceil(0.3 / env.physics_dt)
+  )
+
+
+class PayloadState:
+  def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedRlEnv):
+    self.env = env
+    self.loaded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids):
+    manager = cast(CurriculumManager, self.env.curriculum_manager)
+    stage = manager.get_term_cfg("payload_curriculum").func.episode_stage
+    self.loaded[env_ids] = stage[env_ids] > 0
+
+  def __call__(self, env, platform_cfg, sensor_name):
+    state = payload_state(env, platform_cfg, sensor_name)
+    return torch.where(self.loaded[:, None], state, 0.0)
 
 
 def payload_state(
@@ -53,7 +74,7 @@ def payload_state(
   mass = env.sim.model.body_mass[:, payload.indexing.root_body_id, None]
   sensor = cast(ContactSensor, env.scene[sensor_name]).data
   contact = (cast(torch.Tensor, sensor.found) > 0).float()
-  return torch.cat(
+  state = torch.cat(
     (
       position,
       rotation,
@@ -66,3 +87,4 @@ def payload_state(
     ),
     dim=-1,
   )
+  return state

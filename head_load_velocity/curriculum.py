@@ -1,4 +1,4 @@
-"""Four-stage curriculum using completed episodes from the current stage."""
+"""Five-stage curriculum using completed episodes from the current stage."""
 
 from collections.abc import Callable
 from functools import partial
@@ -32,7 +32,10 @@ class PayloadCurriculum:
     self.window[0] += lengths[eligible].sum() * env.step_dt
     self.window[1] += eligible.sum()
     self.episode_stage[env_ids] = self.stage
-    return {"stage": self.stage + 1, "eta_max": STAGE_LIMITS[self.stage][4]}
+    return {
+      "stage": self.stage + 1,
+      "eta_max": 0.0 if self.stage == 0 else STAGE_LIMITS[self.stage - 1][4],
+    }
 
   def log_iteration(self, log: Callable, logger: Logger, *args, **kwargs):
     self.iterations += 1
@@ -41,7 +44,7 @@ class PayloadCurriculum:
       if logger.gpu_world_size > 1:
         all_reduce(totals)
       if totals[1] > 0 and totals[0] / totals[1] > 19:
-        self.stage = min(self.stage + 1, len(STAGE_LIMITS) - 1)
+        self.stage = min(self.stage + 1, len(STAGE_LIMITS))
       self.window.zero_()
     log(*args, **kwargs)
 
