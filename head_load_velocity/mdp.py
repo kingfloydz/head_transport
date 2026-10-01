@@ -72,13 +72,25 @@ class DeadzonePosture(velocity_rewards.variable_posture):
     return torch.exp(-(error / std).square().mean(-1))
 
 
+def track_linear_velocity(
+  env: ManagerBasedRlEnv, std: float, command_name: str
+) -> torch.Tensor:
+  """Use the official linear tracking formula, targeting rest in the deadzone."""
+  command = cast(torch.Tensor, env.command_manager.get_command(command_name))
+  target = command[:, :2] * moving_command(env, command_name)[:, None]
+  actual = env.scene["robot"].data.root_link_lin_vel_b
+  error = (target - actual[:, :2]).square().sum(-1) + actual[:, 2].square()
+  return torch.exp(-error / std**2)
+
+
 def track_yaw_velocity(
   env: ManagerBasedRlEnv, std: float, command_name: str
 ) -> torch.Tensor:
   """Track body-frame yaw angular velocity without roll/pitch terms."""
   command = cast(torch.Tensor, env.command_manager.get_command(command_name))
+  target = command[:, 2] * moving_command(env, command_name)
   actual = env.scene["robot"].data.root_link_ang_vel_b[:, 2]
-  return torch.exp(-torch.square(command[:, 2] - actual) / std**2)
+  return torch.exp(-torch.square(target - actual) / std**2)
 
 
 def foot_distance_penalty(

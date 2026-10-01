@@ -29,6 +29,7 @@ from .mdp import (
   moving_reward,
   payload_lost_contact,
   payload_state,
+  track_linear_velocity,
   track_yaw_velocity,
 )
 from .networks import HISTORY_LENGTH
@@ -104,17 +105,13 @@ def head_load_velocity_env_cfg(
     )
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
+  cfg.rewards["track_linear_velocity"].func = track_linear_velocity
   cfg.rewards["stability_margin"] = RewardTermCfg(func=stability_penalty, weight=-0.1)
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4
-  # Apply one task-level deadzone without changing official reward calculations.
-  for name in (
-    "track_linear_velocity",
-    "track_angular_velocity",
-    "foot_clearance",
-    "air_time",
-  ):
+  # Gate only gait shaping; tracking rewards target rest inside the deadzone.
+  for name in ("foot_clearance", "air_time"):
     term = cfg.rewards[name]
     term.params["reward_fn"] = term.func
     term.func = moving_reward
