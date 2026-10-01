@@ -20,7 +20,7 @@ from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from .asset import get_head_load_robot_cfg, get_payload_cfg
-from .curriculum import PayloadCurriculum
+from .curriculum import REWARD_WEIGHTS, PayloadCurriculum
 from .events import reset_payload
 from .mdp import (
   DeadzonePosture,
@@ -43,6 +43,8 @@ class HeadLoadEnvCfg(ManagerBasedRlEnvCfg):
 
   def __post_init__(self):
     self.curriculum["payload_curriculum"].params["initial_stage"] = self.payload_stage
+    for name, weights in REWARD_WEIGHTS.items():
+      self.rewards[name].weight = weights[self.payload_stage - 1]
 
 
 def head_load_velocity_env_cfg(
@@ -139,7 +141,7 @@ def head_load_velocity_env_cfg(
   )
   cfg.rewards["joint_torques_l2"] = RewardTermCfg(
     func=mdp.joint_torques_l2,
-    weight=-3e-5,
+    weight=REWARD_WEIGHTS["joint_torques_l2"][0],
     params={"asset_cfg": SceneEntityCfg("robot", actuator_names=".*")},
   )
 

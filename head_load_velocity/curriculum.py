@@ -14,6 +14,11 @@ from mjlab.rl.runner import MjlabOnPolicyRunner
 
 from .load_distribution import STAGE_LIMITS
 
+REWARD_WEIGHTS = {
+  "action_rate_l2": (-0.05, -0.1, -0.12, -0.15),
+  "joint_torques_l2": (-5e-6, -1e-5, -2e-5, -5e-5),
+}
+
 
 class PayloadCurriculum:
   def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
@@ -21,6 +26,14 @@ class PayloadCurriculum:
     self.episode_stage = torch.full((env.num_envs,), -1, device=env.device)
     self.window = torch.zeros(2, dtype=torch.float64, device=env.device)
     self.iterations = 0
+    self.reward_terms = {
+      name: env.reward_manager.get_term_cfg(name) for name in REWARD_WEIGHTS
+    }
+    self.update_reward_weights()
+
+  def update_reward_weights(self):
+    for name, term in self.reward_terms.items():
+      term.weight = REWARD_WEIGHTS[name][self.stage]
 
   def __call__(self, env: ManagerBasedRlEnv, env_ids, initial_stage: int):
     lengths = env.episode_length_buf[env_ids]
@@ -42,6 +55,7 @@ class PayloadCurriculum:
         all_reduce(totals)
       if totals[1] > 0 and totals[0] / totals[1] > 18.8:
         self.stage = min(self.stage + 1, len(STAGE_LIMITS) - 1)
+        self.update_reward_weights()
       self.window.zero_()
     log(*args, **kwargs)
 
