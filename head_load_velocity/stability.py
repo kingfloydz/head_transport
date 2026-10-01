@@ -1,4 +1,4 @@
-"""Nominal platform-only stability, sampled once per physics substep."""
+"""Fixed-rectangle square-friction reward approximation; physics unchanged."""
 
 from __future__ import annotations
 
@@ -17,22 +17,15 @@ from .asset import PLATFORM_HALF_SIZE
 
 
 def stability_margins(
-  rotation, velocity_acc, omega, alpha, mass, height, inertia, edges, mu
+  rotation, acceleration, omega, alpha, mass, r, inertia_w, center, half_size, mu
 ):
-  """Return friction, normal and (+x, -x, +y, -y) moment margins.
-
-  Kinematics are world-frame; inertia and edges are reset-time platform-frame
-  constants. The hypothetical COM stays at (0, 0, height) in the platform frame.
-  """
-  r = rotation[:, :, 2] * height[:, None]
+  """Square-friction reward approximation, not the MuJoCo pyramidal cone."""
   acceleration = (
-    velocity_acc
+    acceleration
     + torch.cross(alpha, r, dim=-1)
     + torch.cross(omega, torch.cross(omega, r, dim=-1), dim=-1)
   )
-  gravity = acceleration.new_tensor([0.0, 0.0, -9.81])
-  force_w = mass[:, None] * (acceleration - gravity)
-  inertia_w = rotation @ inertia @ rotation.transpose(-1, -2)
+  force_w = mass[:, None] * (acceleration - acceleration.new_tensor([0, 0, -9.81]))
   momentum = (inertia_w @ omega.unsqueeze(-1)).squeeze(-1)
   torque_w = (
     (inertia_w @ alpha.unsqueeze(-1)).squeeze(-1)
@@ -42,21 +35,22 @@ def stability_margins(
   inverse = rotation.transpose(-1, -2)
   force = (inverse @ force_w.unsqueeze(-1)).squeeze(-1)
   torque = (inverse @ torque_w.unsqueeze(-1)).squeeze(-1)
-  normal, mg = force[:, 2], mass * 9.81
-  friction = (mu * normal - force[:, :2].norm(dim=-1)) / mg
-  moments = torch.stack(
-    (torque[:, 1], -torque[:, 1], -torque[:, 0], torque[:, 0]), dim=-1
-  )
-  tipping = (edges * normal[:, None] + moments) / (mg[:, None] * 0.20)
-  return torch.cat((friction[:, None], (normal / mg)[:, None], tipping), dim=-1)
-
-
-def stability_barrier(margins):
-  """Positive soft-barrier cost; the reward manager applies weight -0.2."""
-  return (
-    F.softplus((0.1 - margins[:, 0]) / 0.1)
-    + F.softplus((0.2 - margins[:, 1]) / 0.1)
-    + F.softplus((0.1 - margins[:, 2:]) / 0.1).mean(-1)
+  q = torch.cat((center, torch.zeros_like(center[:, :1])), dim=-1)
+  torque -= torch.cross(q, force, dim=-1)
+  fx, fy, fn = force.unbind(-1)
+  tx, ty, tz = torque.unbind(-1)
+  x, y = half_size.unbind(-1)
+  mg = mass * 9.81
+  lower = -mu * (x + y) * fn + (y * fx - mu * tx).abs() + (x * fy - mu * ty).abs()
+  upper = mu * (x + y) * fn - (y * fx + mu * tx).abs() - (x * fy + mu * ty).abs()
+  return torch.stack(
+    (
+      fn / mg,
+      (mu * fn - torch.maximum(fx.abs(), fy.abs())) / (mu * mg),
+      torch.minimum((y * fn - tx.abs()) / (mg * y), (x * fn - ty.abs()) / (mg * x)),
+      torch.minimum(tz - lower, upper - tz) / (mg * (2 * PLATFORM_HALF_SIZE[0])),
+    ),
+    dim=-1,
   )
 
 
@@ -71,6 +65,7 @@ class StabilitySensor(Sensor[torch.Tensor]):
 
   def edit_spec(self, scene_spec, entities) -> None:
     self.robot = entities["robot"]
+    self.payload = entities["payload"]
 
   def initialize(self, mj_model, model, data, device) -> None:
     site = self.robot.find_sites("head_platform")[0][0]
@@ -84,39 +79,29 @@ class StabilitySensor(Sensor[torch.Tensor]):
       mj_model.geom_priority[self.payload_geom],
     )
     n = self.robot.data.root_link_pos_w.shape[0]
-    self.mass = torch.ones(n, device=device)
-    self.height = torch.zeros(n, device=device)
-    self.inertia = torch.zeros(n, 3, 3, device=device)
-    self.edges = torch.zeros(n, 4, device=device)
+    self.center = torch.zeros(n, 2, device=device)
+    self.half_size = torch.ones(n, 2, device=device)
     self.mu = torch.zeros(n, device=device)
     self.previous_velocity = torch.zeros(n, 3, device=device)
     self.previous_omega = torch.zeros(n, 3, device=device)
     self.valid = torch.zeros(n, dtype=torch.bool, device=device)
     self.total = torch.zeros(n, device=device)
+    self.margin_sum = torch.zeros(n, 4, device=device)
+    self.mean_margins = torch.zeros_like(self.margin_sum)
     self.substeps = 0
 
-  def set_payload(self, env_ids, mass, size, com, inertia, platform_quat, box_quat):
-    self.mass[env_ids] = mass
-    self.height[env_ids] = size[:, 2] / 2 + com[:, 2]
-    relative = matrix_from_quat(platform_quat).transpose(-1, -2) @ matrix_from_quat(
-      box_quat
-    )
-    self.inertia[env_ids] = relative @ inertia @ relative.transpose(-1, -2)
-    half = size[:, :2] / 2
-    self.edges[env_ids] = torch.stack(
-      (
-        half[:, 0] - com[:, 0],
-        half[:, 0] + com[:, 0],
-        half[:, 1] - com[:, 1],
-        half[:, 1] + com[:, 1],
-      ),
-      dim=-1,
-    ).clamp_max(PLATFORM_HALF_SIZE[0])
+  def set_payload(self, env_ids, size, com):
+    # Reset centers the COM projection, so box center xy is -com[:2].
+    # Freeze this axis-aligned overlap even if the free box later slips/tilts.
+    low = (-com[:, :2] - size[:, :2] / 2).clamp_min(-PLATFORM_HALF_SIZE[0])
+    high = (-com[:, :2] + size[:, :2] / 2).clamp_max(PLATFORM_HALF_SIZE[0])
+    self.center[env_ids] = (low + high) / 2
+    self.half_size[env_ids] = (high - low) / 2
     # These geoms use dynamic contacts (no explicit pair). Match MuJoCo's
     # priority selection, or elementwise maximum when priorities are equal.
     friction = self.robot.data.model.geom_friction
-    platform = friction[:, self.platform_geom, 0].expand_as(self.mass)
-    payload = friction[:, self.payload_geom, 0].expand_as(self.mass)
+    platform = friction[:, self.platform_geom, 0].expand_as(self.mu)
+    payload = friction[:, self.payload_geom, 0].expand_as(self.mu)
     if self.priorities[0] == self.priorities[1]:
       mu = torch.maximum(platform, payload)
     elif self.priorities[0] > self.priorities[1]:
@@ -132,6 +117,8 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.previous_velocity[ids] = 0
     self.previous_omega[ids] = 0
     self.total[ids] = 0
+    self.margin_sum[ids] = 0
+    self.mean_margins[ids] = 0
 
   def update(self, dt: float) -> None:
     super().update(dt)
@@ -150,18 +137,30 @@ class StabilitySensor(Sensor[torch.Tensor]):
     velocity = site_velocity[:, :3] + torch.cross(omega, offset, dim=-1)
     acceleration = (velocity - self.previous_velocity) / dt
     alpha = (omega - self.previous_omega) / dt
+    model = self.robot.data.model
+    body = self.payload.indexing.root_body_id
+    box_rotation = data.xmat[:, body]
+    axes = box_rotation @ matrix_from_quat(model.body_iquat[:, body])
+    inertia_w = (
+      axes @ torch.diag_embed(model.body_inertia[:, body]) @ axes.transpose(-1, -2)
+    )
+    top = data.site_xpos[:, self.site] + offset
+    r = data.xipos[:, body] - top
     margins = stability_margins(
       rotation,
       acceleration,
       omega,
       alpha,
-      self.mass,
-      self.height,
-      self.inertia,
-      self.edges,
+      model.body_mass[:, body],
+      r,
+      inertia_w,
+      self.center,
+      self.half_size,
       self.mu,
     )
-    self.total += torch.where(self.valid, stability_barrier(margins), 0.0)
+    penalty = F.softplus((0.1 - margins) / 0.1).sum(-1)
+    self.total += torch.where(self.valid, penalty, 0.0)
+    self.margin_sum += torch.where(self.valid[:, None], margins, 0.0)
     self.substeps += 1
     self.previous_velocity.copy_(velocity)
     self.previous_omega.copy_(omega)
@@ -171,10 +170,16 @@ class StabilitySensor(Sensor[torch.Tensor]):
     # The reward is read once after the decimation loop. Cached reads do not
     # consume twice. The first post-reset sample contributes zero to the mean.
     mean = self.total / self.substeps
+    self.mean_margins.copy_(self.margin_sum / self.substeps)
+    self.margin_sum.zero_()
     self.total.zero_()
     self.substeps = 0
     return mean
 
 
 def stability_penalty(env: ManagerBasedRlEnv) -> torch.Tensor:
-  return cast(StabilitySensor, env.scene["payload_stability"]).data
+  sensor = cast(StabilitySensor, env.scene["payload_stability"])
+  cost = sensor.data
+  for i, name in enumerate(("normal", "friction", "tipping", "yaw")):
+    env.extras["log"][f"Stability/{name}"] = sensor.mean_margins[:, i].mean()
+  return cost

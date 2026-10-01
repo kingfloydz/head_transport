@@ -59,11 +59,8 @@ def reset_payload(
   top_offset = torch.zeros_like(position)
   top_offset[:, 2] = PLATFORM_HALF_SIZE[2]
   position = position + quat_apply(rotation, top_offset)
-  platform_rotation = rotation
-  rotation = yaw_quat(platform_rotation)
-  cast(StabilitySensor, env.scene["payload_stability"]).set_payload(
-    env_ids, mass, size, com, inertia, platform_rotation, rotation
-  )
+  rotation = yaw_quat(rotation)
+  cast(StabilitySensor, env.scene["payload_stability"]).set_payload(env_ids, size, com)
   offset = -com
   offset[:, 2] = size[:, 2] / 2
   position += quat_apply(rotation, offset)
