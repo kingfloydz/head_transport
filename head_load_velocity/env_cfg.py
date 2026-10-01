@@ -106,7 +106,7 @@ def head_load_velocity_env_cfg(
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
   cfg.rewards["track_linear_velocity"].func = track_linear_velocity
-  cfg.rewards["stability_margin"] = RewardTermCfg(func=stability_penalty, weight=-0.08)
+  cfg.rewards["stability_margin"] = RewardTermCfg(func=stability_penalty, weight=-0.1)
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4
