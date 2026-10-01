@@ -1,0 +1,15 @@
+{
+  "environment": "current head_load_velocity configuration; user confirmed identical for all controllers",
+  "controllers": [
+    {"id": "controller_01", "checkpoint": null, "split": "train", "stage": 1},
+    {"id": "controller_02", "checkpoint": null, "split": "train", "stage": 1},
+    {"id": "controller_03", "checkpoint": null, "split": "train", "stage": 1},
+    {"id": "controller_04", "checkpoint": null, "split": "train", "stage": 1},
+    {"id": "controller_05", "checkpoint": null, "split": "train", "stage": 1},
+    {"id": "controller_06", "checkpoint": null, "split": "train", "stage": 1},
+    {"id": "controller_07", "checkpoint": null, "split": "val", "stage": 1},
+    {"id": "controller_08", "checkpoint": null, "split": "val", "stage": 1},
+    {"id": "controller_09", "checkpoint": null, "split": "test", "stage": 1},
+    {"id": "controller_10", "checkpoint": null, "split": "test", "stage": 1}
+  ]
+}

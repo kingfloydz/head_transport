@@ -34,6 +34,7 @@ from .mdp import (
 )
 from .networks import HISTORY_LENGTH
 from .stability import StabilitySensorCfg, stability_penalty
+from .surrogate.online import FrozenMarginReward, RawContactFeaturesCfg
 from .torque_speed import TorqueSpeedActuatorCfg
 
 
@@ -41,11 +42,30 @@ from .torque_speed import TorqueSpeedActuatorCfg
 class HeadLoadEnvCfg(ManagerBasedRlEnvCfg):
   payload_stage: int = 1
   """Initial joint curriculum stage (1 through 4)."""
+  surrogate_model: str = ""
+  surrogate_weight: float = 0.0
+  surrogate_delta: float = 0.0
+  surrogate_temperature: float = 0.1
+  surrogate_outside_cost: float = 5.0
 
   def __post_init__(self):
     self.curriculum["payload_curriculum"].params["initial_stage"] = self.payload_stage
     for name, weights in REWARD_WEIGHTS.items():
       self.rewards[name].weight = weights[self.payload_stage - 1]
+    if self.surrogate_weight > 0:
+      self.scene.sensors += (
+        RawContactFeaturesCfg(name="surrogate_features", decimation=self.decimation),
+      )
+      self.rewards["surrogate_stability"] = RewardTermCfg(
+        func=FrozenMarginReward,
+        weight=-self.surrogate_weight,
+        params=dict(
+          model_path=self.surrogate_model,
+          delta=self.surrogate_delta,
+          temperature=self.surrogate_temperature,
+          outside_cost=self.surrogate_outside_cost,
+        ),
+      )
 
 
 def head_load_velocity_env_cfg(

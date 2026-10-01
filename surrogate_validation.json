@@ -1,0 +1,552 @@
+{
+  "physics": {
+    "version": 1,
+    "fields": [
+      "d_x_minus",
+      "d_x_plus",
+      "d_y_minus",
+      "d_y_plus",
+      "d_z_minus",
+      "d_z_plus",
+      "mass",
+      "Ixx",
+      "Iyy",
+      "Izz",
+      "Ixy",
+      "Ixz",
+      "Iyz",
+      "com_O_x_T",
+      "com_O_y_T",
+      "com_O_z_T",
+      "R_BT_col0_x",
+      "R_BT_col0_y",
+      "R_BT_col0_z",
+      "R_BT_col1_x",
+      "R_BT_col1_y",
+      "R_BT_col1_z",
+      "a_T_x",
+      "a_T_y",
+      "a_T_z",
+      "omega_T_x",
+      "omega_T_y",
+      "omega_T_z",
+      "alpha_T_x",
+      "alpha_T_y",
+      "alpha_T_z",
+      "gravity_unit_T_x",
+      "gravity_unit_T_y",
+      "gravity_unit_T_z",
+      "mu",
+      "tangent1_P_x",
+      "tangent1_P_y"
+    ],
+    "labels": [
+      "s_N",
+      "s_mu",
+      "s_tip",
+      "s_yaw",
+      "s_all"
+    ],
+    "input_dim": 37,
+    "platform_size": [
+      0.2,
+      0.2,
+      0.02
+    ],
+    "p": 0.2,
+    "torso_reference": "torso_link body origin (not COM)",
+    "top_position_T": [
+      0.0,
+      0.0,
+      0.39
+    ],
+    "R_PT": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "gravity": 9.81,
+    "rotation_6d": "first two columns of box-to-torso rotation, column-major",
+    "motion_frame": "torso; world velocity differences rotated at current sample",
+    "sample_dt": 0.02,
+    "filter": "none",
+    "time": "last substep pre-integration derived state",
+    "cone": "pyramidal",
+    "condim": 3,
+    "tangents": "actual contact tangent projected into platform xy; second = z cross first",
+    "extension": "35+2: world-dependent pyramidal tangent cannot be inferred from gravity",
+    "tilt_tolerance_rad": 0.035,
+    "bottom_gap_tolerance_m": 0.005,
+    "basis_tolerance": 0.005,
+    "area_tolerance_m2": 1e-10,
+    "domain_bits": {
+      "history": 1,
+      "not_coplanar": 2,
+      "no_platform_contact": 4,
+      "other_contact": 8,
+      "contact_basis": 16,
+      "geometry": 32,
+      "friction": 64,
+      "training_range": 128
+    },
+    "solver_status": {
+      "ok": 0,
+      "outside_domain": 1,
+      "numerical_failure": 2
+    },
+    "precision": "float64 HiGHS LP; equality residual <= 1e-7",
+    "interpretation": "rigid polyhedral distributed contact, not MuJoCo soft contact",
+    "versions": {
+      "mujoco": "3.11.0",
+      "mujoco-warp": "3.11.0",
+      "mjlab": "1.6.0"
+    },
+    "verified_material": {
+      "priorities": [
+        1,
+        1
+      ],
+      "geom_friction": [
+        [
+          0.8,
+          0.005,
+          0.0001
+        ],
+        [
+          0.8,
+          0.005,
+          0.0001
+        ]
+      ],
+      "cone": 0,
+      "condim": [
+        3,
+        3
+      ],
+      "explicit_pair": false
+    }
+  },
+  "static_labels": [
+    1.0,
+    0.8,
+    0.5,
+    0.4,
+    1.0
+  ],
+  "friction_exceeded": [
+    1.0,
+    -0.19999999999999996,
+    0.0,
+    null,
+    -0.25
+  ],
+  "tipping_exceeded": [
+    1.0,
+    1.4709480122324161,
+    -0.26452599388379183,
+    null,
+    -0.5290519877675837
+  ],
+  "yaw_exceeded": [
+    1.0,
+    0.8,
+    0.5,
+    -0.2795786612300373,
+    -0.6989466530750932
+  ],
+  "intersection_vertices": 8,
+  "octagon_vertices": 8,
+  "transform_max_error": 8.881784197001252e-16,
+  "tangent_dependency": [
+    0.20000000000000007,
+    -0.048528137423856976
+  ],
+  "yaw_mask_passed": true,
+  "synthetic_model_rejected_by_reward": true,
+  "runtime": {
+    "samples": 16,
+    "valid": 6,
+    "numerical_failures": 0,
+    "partial_reset_history_isolated": true,
+    "physics_unchanged": true
+  },
+  "model_report": {
+    "train": {
+      "n": 336,
+      "mae": [
+        0.9051067937655397,
+        0.8917588083710665,
+        0.3099177007678174,
+        0.42815542451897554,
+        1.0967689744499243
+      ],
+      "boundary_n": 12,
+      "boundary_mae": 0.787256514900751,
+      "overestimate_mean": 0.688211228906866,
+      "overestimate_p95": 3.149765749833671,
+      "unsafe_n": 258,
+      "safe_n": 78,
+      "false_unsafe_given_safe": 0.9358974358974359,
+      "label_counts": [
+        336,
+        336,
+        336,
+        78,
+        336
+      ],
+      "false_safe_given_unsafe": 0.007751937984496124
+    },
+    "val": {
+      "n": 128,
+      "mae": [
+        0.8627982427265422,
+        0.8195751759633503,
+        0.30584188387070277,
+        0.4243230098038383,
+        1.2385998963887688
+      ],
+      "boundary_n": 9,
+      "boundary_mae": 1.2093479006196983,
+      "overestimate_mean": 0.5033923974614256,
+      "overestimate_p95": 2.244889572859902,
+      "unsafe_n": 95,
+      "safe_n": 33,
+      "false_unsafe_given_safe": 0.9696969696969697,
+      "label_counts": [
+        128,
+        128,
+        128,
+        33,
+        128
+      ],
+      "false_safe_given_unsafe": 0.031578947368421054
+    },
+    "test": {
+      "n": 128,
+      "mae": [
+        0.9949413362416913,
+        0.8958422374917001,
+        0.3328662354613828,
+        0.4235950680327073,
+        1.3679333911523854
+      ],
+      "boundary_n": 9,
+      "boundary_mae": 1.6176248016813455,
+      "overestimate_mean": 0.6231013154823739,
+      "overestimate_p95": 3.4351760675837113,
+      "unsafe_n": 90,
+      "safe_n": 38,
+      "false_unsafe_given_safe": 0.9210526315789473,
+      "label_counts": [
+        128,
+        128,
+        128,
+        38,
+        128
+      ],
+      "false_safe_given_unsafe": 0.011111111111111112
+    },
+    "geometry_test": {
+      "n": 48,
+      "mae": [
+        0.6440269961341821,
+        0.9448503336978392,
+        0.40699096137388197,
+        0.4525179037385278,
+        2.1554726745236974
+      ],
+      "boundary_n": 3,
+      "boundary_mae": 2.7525824556245744,
+      "overestimate_mean": 0.0,
+      "overestimate_p95": 0.0,
+      "unsafe_n": 33,
+      "safe_n": 15,
+      "false_unsafe_given_safe": 1.0,
+      "label_counts": [
+        48,
+        48,
+        48,
+        15,
+        48
+      ],
+      "false_safe_given_unsafe": 0.0
+    },
+    "synthetic_00": {
+      "n": 64,
+      "mae": [
+        0.7699670196980037,
+        0.9675007900294033,
+        0.31777242374339504,
+        0.3848727893552831,
+        1.012717456441095
+      ],
+      "boundary_n": 1,
+      "boundary_mae": 0.9966907566525365,
+      "overestimate_mean": 0.538238674910529,
+      "overestimate_p95": 2.2629668515783856,
+      "unsafe_n": 52,
+      "safe_n": 12,
+      "false_unsafe_given_safe": 0.9166666666666666,
+      "label_counts": [
+        64,
+        64,
+        64,
+        12,
+        64
+      ],
+      "false_safe_given_unsafe": 0.0
+    },
+    "synthetic_01": {
+      "n": 64,
+      "mae": [
+        0.950577878377658,
+        0.8656382358153667,
+        0.2782032513894167,
+        0.42608760105884047,
+        1.4374165533824494
+      ],
+      "boundary_n": 5,
+      "boundary_mae": 1.300877426330048,
+      "overestimate_mean": 0.6737849275350953,
+      "overestimate_p95": 3.2790405898744277,
+      "unsafe_n": 44,
+      "safe_n": 20,
+      "false_unsafe_given_safe": 0.95,
+      "label_counts": [
+        64,
+        64,
+        64,
+        20,
+        64
+      ],
+      "false_safe_given_unsafe": 0.0
+    },
+    "synthetic_02": {
+      "n": 64,
+      "mae": [
+        0.8622696676599495,
+        0.92179894378702,
+        0.30975978147709965,
+        0.5423641142256662,
+        1.3038128409385563
+      ],
+      "boundary_n": 1,
+      "boundary_mae": 0.43575392083931674,
+      "overestimate_mean": 0.5563115778527293,
+      "overestimate_p95": 3.0953541500469868,
+      "unsafe_n": 46,
+      "safe_n": 18,
+      "false_unsafe_given_safe": 1.0,
+      "label_counts": [
+        64,
+        64,
+        64,
+        18,
+        64
+      ],
+      "false_safe_given_unsafe": 0.0
+    },
+    "synthetic_03": {
+      "n": 64,
+      "mae": [
+        0.9113953969898942,
+        0.8842352531258785,
+        0.38808205608476126,
+        0.48752721942973115,
+        1.3015208901426032
+      ],
+      "boundary_n": 2,
+      "boundary_mae": 1.1059454268161155,
+      "overestimate_mean": 0.7156836748687013,
+      "overestimate_p95": 3.4254024199090742,
+      "unsafe_n": 50,
+      "safe_n": 14,
+      "false_unsafe_given_safe": 1.0,
+      "label_counts": [
+        64,
+        64,
+        64,
+        14,
+        64
+      ],
+      "false_safe_given_unsafe": 0.02
+    },
+    "synthetic_04": {
+      "n": 64,
+      "mae": [
+        0.8999892977604982,
+        0.945187598238496,
+        0.39513902014447144,
+        0.39149523287075244,
+        1.3067864500364395
+      ],
+      "boundary_n": 4,
+      "boundary_mae": 1.7100573265595393,
+      "overestimate_mean": 0.6457070566707699,
+      "overestimate_p95": 2.9190896711696617,
+      "unsafe_n": 47,
+      "safe_n": 17,
+      "false_unsafe_given_safe": 0.8823529411764706,
+      "label_counts": [
+        64,
+        64,
+        64,
+        17,
+        64
+      ],
+      "false_safe_given_unsafe": 0.0
+    },
+    "synthetic_05": {
+      "n": 64,
+      "mae": [
+        0.8406316585153177,
+        0.8060106707360271,
+        0.2433546175091406,
+        0.3166926761491618,
+        1.0123874481341493
+      ],
+      "boundary_n": 2,
+      "boundary_mae": 0.35793691126970567,
+      "overestimate_mean": 0.48338303417521483,
+      "overestimate_p95": 2.3023226625263358,
+      "unsafe_n": 52,
+      "safe_n": 12,
+      "false_unsafe_given_safe": 0.9166666666666666,
+      "label_counts": [
+        64,
+        64,
+        64,
+        12,
+        64
+      ],
+      "false_safe_given_unsafe": 0.019230769230769232
+    },
+    "synthetic_06": {
+      "n": 64,
+      "mae": [
+        0.8677483817186001,
+        0.8041677870182244,
+        0.33433403046488186,
+        0.43263089489121226,
+        1.2296191514395622
+      ],
+      "boundary_n": 4,
+      "boundary_mae": 0.7811796954820489,
+      "overestimate_mean": 0.41507347334108335,
+      "overestimate_p95": 1.9881933989838143,
+      "unsafe_n": 46,
+      "safe_n": 18,
+      "false_unsafe_given_safe": 0.9444444444444444,
+      "label_counts": [
+        64,
+        64,
+        64,
+        18,
+        64
+      ],
+      "false_safe_given_unsafe": 0.021739130434782608
+    },
+    "synthetic_07": {
+      "n": 64,
+      "mae": [
+        0.8578481045493915,
+        0.834982561314153,
+        0.27734973772763316,
+        0.4143535486924004,
+        1.2475806366813622
+      ],
+      "boundary_n": 5,
+      "boundary_mae": 1.5518824647298177,
+      "overestimate_mean": 0.5917113197191228,
+      "overestimate_p95": 2.6471456890616847,
+      "unsafe_n": 49,
+      "safe_n": 15,
+      "false_unsafe_given_safe": 1.0,
+      "label_counts": [
+        64,
+        64,
+        64,
+        15,
+        64
+      ],
+      "false_safe_given_unsafe": 0.04081632653061224
+    },
+    "synthetic_08": {
+      "n": 64,
+      "mae": [
+        0.9452694337913023,
+        0.9592109695506805,
+        0.35556208227493524,
+        0.37631073328712783,
+        1.3299878820982043
+      ],
+      "boundary_n": 4,
+      "boundary_mae": 1.2633699384033288,
+      "overestimate_mean": 0.7352678161294165,
+      "overestimate_p95": 3.6491231405468327,
+      "unsafe_n": 47,
+      "safe_n": 17,
+      "false_unsafe_given_safe": 0.9411764705882353,
+      "label_counts": [
+        64,
+        64,
+        64,
+        17,
+        64
+      ],
+      "false_safe_given_unsafe": 0.0
+    },
+    "synthetic_09": {
+      "n": 64,
+      "mae": [
+        1.0446132379935884,
+        0.8324735083649308,
+        0.31017038649414685,
+        0.46187286176237907,
+        1.405878903931857
+      ],
+      "boundary_n": 5,
+      "boundary_mae": 1.9010286923037587,
+      "overestimate_mean": 0.5109348185606216,
+      "overestimate_p95": 2.248895341694991,
+      "unsafe_n": 43,
+      "safe_n": 21,
+      "false_unsafe_given_safe": 0.9047619047619048,
+      "label_counts": [
+        64,
+        64,
+        64,
+        21,
+        64
+      ],
+      "false_safe_given_unsafe": 0.023255813953488372
+    },
+    "benchmark": {
+      "device": "cpu",
+      "batch": 4096,
+      "repeats": 100,
+      "milliseconds": 3.8482370000565425,
+      "scope": "normalization + MLP only; excludes feature/contact gathering",
+      "cpu_threads": 4
+    },
+    "synthetic_smoke_only": true,
+    "dataset_status_counts": {
+      "0": 640,
+      "1": 0,
+      "2": 0
+    }
+  },
+  "limitations": "Synthetic identities are NOT the ten G1 controllers; no RL reward model is released"
+}
