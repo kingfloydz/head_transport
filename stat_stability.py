@@ -37,7 +37,8 @@ def main() -> None:
   runner.load(args.checkpoint, load_cfg={"actor": True}, strict=True,
               map_location=args.device)
   policy = runner.get_inference_policy(device=args.device)
-  obs = vec_env.reset()
+  reset = vec_env.reset()
+  obs = reset[0] if isinstance(reset, tuple) else reset
   samples = []
   with torch.inference_mode():
     for _ in range(args.steps):
