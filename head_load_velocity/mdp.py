@@ -8,7 +8,68 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
+from mjlab.tasks.velocity.mdp import rewards as velocity_rewards
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, quat_apply_inverse
+
+
+def moving_command(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+  command = cast(torch.Tensor, env.command_manager.get_command(command_name))
+  return (command[:, :2].norm(dim=-1) >= 0.1) | (command[:, 2].abs() >= 0.05)
+
+
+def moving_reward(env, reward_fn, command_name: str, **kwargs) -> torch.Tensor:
+  return reward_fn(env, command_name=command_name, **kwargs) * moving_command(
+    env, command_name
+  )
+
+
+class DeadzoneSwingHeight(velocity_rewards.feet_swing_height):
+  def __call__(
+    self,
+    env,
+    sensor_name,
+    height_sensor_name,
+    target_height,
+    command_name,
+    command_threshold,
+  ) -> torch.Tensor:
+    # Always update the official peak-height history, including while standing.
+    return super().__call__(
+      env,
+      sensor_name,
+      height_sensor_name,
+      target_height,
+      command_name,
+      command_threshold,
+    ) * moving_command(env, command_name)
+
+  def reset(self, env_ids=None):
+    self.peak_heights[env_ids] = 0
+
+
+class DeadzonePosture(velocity_rewards.variable_posture):
+  def __call__(
+    self,
+    env,
+    std_standing,
+    std_walking,
+    std_running,
+    asset_cfg,
+    command_name,
+    walking_threshold=0.5,
+    running_threshold=1.5,
+  ):
+    command = cast(torch.Tensor, env.command_manager.get_command(command_name))
+    running = command[:, :2].norm(dim=-1) + command[:, 2].abs() >= running_threshold
+    std = torch.where(running[:, None], self.std_running, self.std_walking)
+    std = torch.where(
+      moving_command(env, command_name)[:, None], std, self.std_standing
+    )
+    error = (
+      env.scene[asset_cfg.name].data.joint_pos[:, asset_cfg.joint_ids]
+      - self.default_joint_pos[:, asset_cfg.joint_ids]
+    )
+    return torch.exp(-(error / std).square().mean(-1))
 
 
 def track_yaw_velocity(

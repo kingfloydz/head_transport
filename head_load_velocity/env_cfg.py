@@ -23,7 +23,10 @@ from .asset import get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import PayloadCurriculum
 from .events import reset_payload
 from .mdp import (
+  DeadzonePosture,
+  DeadzoneSwingHeight,
   foot_distance_penalty,
+  moving_reward,
   payload_lost_contact,
   payload_state,
   track_yaw_velocity,
@@ -103,6 +106,27 @@ def head_load_velocity_env_cfg(
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4
+  # Apply one task-level deadzone without changing official reward calculations.
+  for name in (
+    "track_linear_velocity",
+    "track_angular_velocity",
+    "foot_clearance",
+    "air_time",
+  ):
+    term = cfg.rewards[name]
+    term.params["reward_fn"] = term.func
+    term.func = moving_reward
+  # Disable the old linear-plus-angular gate; slip/impact remain active at rest.
+  for name in (
+    "foot_clearance",
+    "air_time",
+    "foot_swing_height",
+    "foot_slip",
+    "soft_landing",
+  ):
+    cfg.rewards[name].params["command_threshold"] = -1.0
+  cfg.rewards["foot_swing_height"].func = DeadzoneSwingHeight
+  cfg.rewards["pose"].func = DeadzonePosture
   cfg.rewards["foot_distance"] = RewardTermCfg(
     func=foot_distance_penalty,
     weight=-1.0,
