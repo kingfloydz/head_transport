@@ -45,7 +45,8 @@ class HeadLoadEnvCfg(ManagerBasedRlEnvCfg):
   def __post_init__(self):
     self.curriculum["payload_curriculum"].params["initial_stage"] = self.payload_stage
     for name, weights in REWARD_WEIGHTS.items():
-      self.rewards[name].weight = weights[self.payload_stage - 1]
+      if name in self.rewards:
+        self.rewards[name].weight = weights[self.payload_stage - 1]
 
 
 def head_load_velocity_env_cfg(
@@ -106,7 +107,11 @@ def head_load_velocity_env_cfg(
   }
   cfg.rewards["track_linear_velocity"].weight = 5.0
   cfg.rewards["track_linear_velocity"].func = track_linear_velocity
-  cfg.rewards["stability_margin"] = RewardTermCfg(func=stability_penalty, weight=-0.1)
+  cfg.rewards["stability_margin"] = RewardTermCfg(
+    func=stability_penalty,
+    weight=-0.1,
+    params={"friction_scale": 0.0, "yaw_scale": 0.0},
+  )
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
   cfg.rewards["track_angular_velocity"].weight = 5.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.4

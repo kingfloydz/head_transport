@@ -17,6 +17,7 @@ from .load_distribution import STAGE_LIMITS
 REWARD_WEIGHTS = {
   "action_rate_l2": (-0.05, -0.1, -0.12, -0.15),
   "joint_torques_l2": (-5e-6, -1e-5, -2e-5, -5e-5),
+  "stability_relative": (0.0, 0.3, 0.6, 1.0),
 }
 
 
@@ -28,12 +29,18 @@ class PayloadCurriculum:
     self.iterations = 0
     self.reward_terms = {
       name: env.reward_manager.get_term_cfg(name) for name in REWARD_WEIGHTS
+      if name in ("action_rate_l2", "joint_torques_l2")
     }
+    self.stability_term = env.reward_manager.get_term_cfg("stability_margin")
     self.update_reward_weights()
 
   def update_reward_weights(self):
     for name, term in self.reward_terms.items():
-      term.weight = REWARD_WEIGHTS[name][self.stage]
+      if name in ("action_rate_l2", "joint_torques_l2"):
+        term.weight = REWARD_WEIGHTS[name][self.stage]
+    scale = REWARD_WEIGHTS["stability_relative"][self.stage]
+    self.stability_term.params["friction_scale"] = scale
+    self.stability_term.params["yaw_scale"] = scale
 
   def __call__(self, env: ManagerBasedRlEnv, env_ids, initial_stage: int):
     lengths = env.episode_length_buf[env_ids]
