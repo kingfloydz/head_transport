@@ -53,7 +53,7 @@ class PayloadCurriculum:
       totals = self.window.clone()
       if logger.gpu_world_size > 1:
         all_reduce(totals)
-      if totals[1] > 0 and totals[0] / totals[1] > 18.8:
+      if totals[1] > 0 and totals[0] / totals[1] > 19.2:
         self.stage = min(self.stage + 1, len(STAGE_LIMITS) - 1)
         self.update_reward_weights()
       self.window.zero_()
