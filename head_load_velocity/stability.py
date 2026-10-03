@@ -86,8 +86,6 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.previous_omega = torch.zeros(n, 3, device=device)
     self.valid = torch.zeros(n, dtype=torch.bool, device=device)
     self.total = torch.zeros(n, device=device)
-    self.penalty_sum = torch.zeros(n, 4, device=device)
-    self.mean_penalties = torch.zeros_like(self.penalty_sum)
     self.margin_sum = torch.zeros(n, 4, device=device)
     self.mean_margins = torch.zeros_like(self.margin_sum)
     self.substeps = 0
@@ -119,8 +117,6 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.previous_velocity[ids] = 0
     self.previous_omega[ids] = 0
     self.total[ids] = 0
-    self.penalty_sum[ids] = 0
-    self.mean_penalties[ids] = 0
     self.margin_sum[ids] = 0
     self.mean_margins[ids] = 0
 
@@ -162,10 +158,9 @@ class StabilitySensor(Sensor[torch.Tensor]):
       self.half_size,
       self.mu,
     )
-    penalty = F.softplus((0.1 - margins) / 0.1).sum(-1)
-    penalty_terms = F.softplus((0.1 - margins) / 0.1)
+    # Penalize normal, friction and tipping; retain yaw only for diagnostics.
+    penalty = F.softplus((0.1 - margins[:, :3]) / 0.1).sum(-1)
     self.total += torch.where(self.valid, penalty, 0.0)
-    self.penalty_sum += torch.where(self.valid[:, None], penalty_terms, 0.0)
     self.margin_sum += torch.where(self.valid[:, None], margins, 0.0)
     self.substeps += 1
     self.previous_velocity.copy_(velocity)
@@ -177,20 +172,15 @@ class StabilitySensor(Sensor[torch.Tensor]):
     # consume twice. The first post-reset sample contributes zero to the mean.
     mean = self.total / self.substeps
     self.mean_margins.copy_(self.margin_sum / self.substeps)
-    self.mean_penalties.copy_(self.penalty_sum / self.substeps)
     self.margin_sum.zero_()
-    self.penalty_sum.zero_()
     self.total.zero_()
     self.substeps = 0
     return mean
 
 
-def stability_penalty(
-  env: ManagerBasedRlEnv, friction_scale: float = 1.0, yaw_scale: float = 1.0
-) -> torch.Tensor:
+def stability_penalty(env: ManagerBasedRlEnv) -> torch.Tensor:
   sensor = cast(StabilitySensor, env.scene["payload_stability"])
-  scales = sensor.data.new_tensor((1.0, friction_scale, 1.0, yaw_scale))
-  cost = (sensor.mean_penalties * scales).sum(-1)
+  cost = sensor.data
   for i, name in enumerate(("normal", "friction", "tipping", "yaw")):
     env.extras["log"][f"Stability/{name}"] = sensor.mean_margins[:, i].mean()
   return cost
