@@ -19,7 +19,7 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.terrains import TerrainEntityCfg
-from mjlab.utils.spec_config import GeomCfg
+from mjlab.utils.spec_config import CollisionCfg
 
 from .asset import FOOT_SOLREF, get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import REWARD_WEIGHTS, PayloadCurriculum
@@ -57,7 +57,16 @@ def head_load_velocity_env_cfg(
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
   cfg.scene.entities["payload"] = get_payload_cfg()
   terrain = cast(TerrainEntityCfg, cfg.scene.terrain)
-  terrain.geoms += (GeomCfg(geom_names_expr=("terrain",), solref=FOOT_SOLREF),)
+  terrain.collisions += (
+    CollisionCfg(
+      geom_names_expr=("terrain",),
+      contype=1,
+      conaffinity=1,
+      condim=3,
+      priority=0,
+      solref=FOOT_SOLREF,
+    ),
+  )
   articulation = cast(
     EntityArticulationInfoCfg, cfg.scene.entities["robot"].articulation
   )
