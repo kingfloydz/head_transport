@@ -30,6 +30,20 @@ ARM_PATTERN = r"^(left|right)_(shoulder|elbow|wrist|hand).*_collision$"
 PLATFORM_POS = (0.0, 0.0, 0.38)
 PLATFORM_HALF_SIZE = (0.1, 0.1, 0.01)
 PAYLOAD_SOLREF = (0.01, 1.2)
+FOOT_SOLREF = (0.01, 1.2)
+FOOT_RADIUS = 0.008
+FOOT_AXIS_Z = -0.027409145
+# Left foot (rear x, front x, y), fitted offline to the STL sole envelope.
+# The outer axes are 65 mm long; mirror y and ordering for the right foot.
+FOOT_AXES = (
+  (0.040, 0.105, -0.029741791),
+  (-0.045014, 0.125422, -0.0198),
+  (-0.055192, 0.132756, -0.0099),
+  (-0.057841369, 0.134365351, 0.000049556),
+  (-0.055195, 0.132783, 0.0100),
+  (-0.044990, 0.125422, 0.0199),
+  (0.040, 0.105, 0.029840903),
+)
 ARMATURE_5010 = 0.0021812
 WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_wrist_.*",),
@@ -83,13 +97,14 @@ def get_spec() -> mujoco.MjSpec:
     for i in range(1, 5):
       spec.delete(spec.geom(f"{side}_foot{i}_collision"))
     body = spec.body(f"{side}_ankle_roll_link")
-    for i in range(1, 8):
-      source = reference.geom(f"{side}_foot{i}_collision")
+    axes = FOOT_AXES if side == "left" else FOOT_AXES[::-1]
+    for i, (rear, front, y) in enumerate(axes, 1):
+      y = y if side == "left" else -y
       body.add_geom(
-        name=source.name,
-        type=source.type,
-        size=source.size.tolist(),
-        fromto=source.fromto.tolist(),
+        name=f"{side}_foot{i}_collision",
+        type=mujoco.mjtGeom.mjGEOM_CAPSULE,
+        size=(FOOT_RADIUS, 0.0, 0.0),
+        fromto=(rear, y, FOOT_AXIS_Z, front, y, FOOT_AXIS_Z),
         mass=0.0,
         group=3,
       )
@@ -180,6 +195,7 @@ def get_head_load_robot_cfg() -> EntityCfg:
       },
       priority={"head_platform_collision": 1, ".*_collision": 0},
       friction={FOOT_PATTERN: (0.3,), "head_platform_collision": (0.8,)},
+      solref={FOOT_PATTERN: FOOT_SOLREF},
     ),
   )
   return cfg

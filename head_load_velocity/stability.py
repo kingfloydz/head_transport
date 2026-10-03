@@ -90,11 +90,11 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.mean_margins = torch.zeros_like(self.margin_sum)
     self.substeps = 0
 
-  def set_payload(self, env_ids, size, com):
-    # Reset centers the COM projection, so box center xy is -com[:2].
+  def set_payload(self, env_ids, size, box_xy):
+    # Include the randomized COM displacement in the reset box position.
     # Freeze this axis-aligned overlap even if the free box later slips/tilts.
-    low = (-com[:, :2] - size[:, :2] / 2).clamp_min(-PLATFORM_HALF_SIZE[0])
-    high = (-com[:, :2] + size[:, :2] / 2).clamp_max(PLATFORM_HALF_SIZE[0])
+    low = (box_xy - size[:, :2] / 2).clamp_min(-PLATFORM_HALF_SIZE[0])
+    high = (box_xy + size[:, :2] / 2).clamp_max(PLATFORM_HALF_SIZE[0])
     self.center[env_ids] = (low + high) / 2
     self.half_size[env_ids] = (high - low) / 2
     # These geoms use dynamic contacts (no explicit pair). Match MuJoCo's

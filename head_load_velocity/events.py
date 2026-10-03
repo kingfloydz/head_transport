@@ -21,6 +21,7 @@ from .stability import StabilitySensor
 
 @requires_model_fields(
   "geom_size",
+  "geom_friction",
   "geom_rbound",
   "geom_aabb",
   "body_mass",
@@ -60,9 +61,15 @@ def reset_payload(
   top_offset[:, 2] = PLATFORM_HALF_SIZE[2]
   position = position + quat_apply(rotation, top_offset)
   rotation = yaw_quat(rotation)
-  cast(StabilitySensor, env.scene["payload_stability"]).set_payload(env_ids, size, com)
+  stability = cast(StabilitySensor, env.scene["payload_stability"])
+  # Equal geom priorities use max friction: synchronize the two sliding values.
+  model.geom_friction[env_ids, geom, 0] = model.geom_friction[
+    env_ids, stability.platform_geom, 0
+  ]
   offset = -com
+  offset[:, :2] += torch.empty_like(com[:, :2]).uniform_(-0.03, 0.03)
   offset[:, 2] = size[:, 2] / 2
+  stability.set_payload(env_ids, size, offset[:, :2])
   position += quat_apply(rotation, offset)
   payload.write_root_link_pose_to_sim(torch.cat((position, rotation), -1), env_ids)
   payload.write_root_link_velocity_to_sim(

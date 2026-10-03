@@ -18,8 +18,10 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.velocity.config.g1.env_cfgs import unitree_g1_flat_env_cfg
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+from mjlab.terrains import TerrainEntityCfg
+from mjlab.utils.spec_config import GeomCfg
 
-from .asset import get_head_load_robot_cfg, get_payload_cfg
+from .asset import FOOT_SOLREF, get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import REWARD_WEIGHTS, PayloadCurriculum
 from .events import reset_payload
 from .mdp import (
@@ -54,6 +56,8 @@ def head_load_velocity_env_cfg(
   cfg = unitree_g1_flat_env_cfg(play=play)
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
   cfg.scene.entities["payload"] = get_payload_cfg()
+  terrain = cast(TerrainEntityCfg, cfg.scene.terrain)
+  terrain.geoms += (GeomCfg(geom_names_expr=("terrain",), solref=FOOT_SOLREF),)
   articulation = cast(
     EntityArticulationInfoCfg, cfg.scene.entities["robot"].articulation
   )
@@ -173,6 +177,16 @@ def head_load_velocity_env_cfg(
         "asset_cfg": SceneEntityCfg("terrain", geom_names=("terrain",)),
         "operation": "abs",
         "ranges": (0.5, 1.2),
+        "axes": [0],
+      },
+    ),
+    "platform_friction": EventTermCfg(
+      func=dr.geom_friction,
+      mode="reset",
+      params={
+        "asset_cfg": SceneEntityCfg("robot", geom_names=("head_platform_collision",)),
+        "operation": "abs",
+        "ranges": (0.5, 1.0),
         "axes": [0],
       },
     ),
