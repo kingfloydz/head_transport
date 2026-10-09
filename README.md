@@ -37,18 +37,29 @@ HEAD_LOAD_STAGE=4 MUJOCO_GL=disable python3 -m mjlab.scripts.play \
   --num-envs 1 --viewer viser
 ```
 
-The stability reward uses the current projected bottom-face/tray intersection
-and diamond friction, including yaw constraints. Full coverage uses 26 analytic
-square facets precomputed per reset; changing partial overlaps use SciPy's
-convex-hull conversion. Wrench and margin evaluation are batched in float64.
-The projected support region is an approximation when the payload tilts.
+The stability reward uses the current bottom-face/tray intersection and diamond
+friction, including yaw constraints. Full coverage uses 26 analytic square
+facets precomputed per reset. Axis-aligned rectangles use 32 analytic rows;
+rotated rectangles use the analytic rectangle support function (center term
+plus absolute half-edge projections) and two independent edge directions.
+General polygons use
+finite support directions and Fourier--Motzkin elimination in batched Torch,
+without CPU geometry transfers or a convex-hull library. Geometry rebuilds are
+chunked (`geometry_batch_size=64`) to bound temporary device memory. Parallel
+and opposite edges are merged before support-direction enumeration. Variable
+row compaction synchronizes scalar row counts, not geometric data.
 
 `StabilitySensorCfg` defaults: acceleration scale `1 m/s^2`, angular acceleration
 scale `10 rad/s^2`, target margin `1`, softplus temperature `0.5`. Reward weight
 is `-0.1`. Geometry reuse is exact by default (`geometry_tolerance=0`); a positive
 tolerance compares projected vertices against the last rebuild and introduces
 a geometric approximation. Denominators are reused only when geometry, COM
-and expressed inertia are unchanged. Empty support regions receive cost `10`.
+and expressed inertia are unchanged. Body-frame inertia is cached at reset.
+Empty support regions and nonplanar face contact receive fixed cost `10`.
+Face contact requires all four bottom corners to lie within `0.002 m` of the
+tray plane and their height spread to be at most `0.001 m`. These configurable
+soft-contact tolerances distinguish normal penetration from lift/tilt; they
+do not require the payload to cover the entire tray. Evaluation uses float64.
 
 After installation, run the mathematical regression checks with:
 
