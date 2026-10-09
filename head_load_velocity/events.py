@@ -62,6 +62,7 @@ def reset_payload(
   position = position + quat_apply(rotation, top_offset)
   rotation = yaw_quat(rotation)
   stability = cast(StabilitySensor, env.scene["payload_stability"])
+  stability.contact_points = env.scene["stability_contact_points"]
   # Equal geom priorities use max friction: synchronize the two sliding values.
   model.geom_friction[env_ids, geom, 0] = model.geom_friction[
     env_ids, stability.platform_geom, 0

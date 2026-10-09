@@ -1,7 +1,7 @@
 """Diamond-friction acceleration robustness for planar face contact.
 
-Lifted/tilted faces receive a fixed cost; soft-contact height tolerances define
-the planar-contact approximation. This is not a MuJoCo contact solver guarantee.
+Small contact-point hulls receive a fixed cost. This support-area criterion
+is not a guarantee of planar face contact or of MuJoCo contact feasibility.
 """
 
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ from mjlab.utils.lab_api.math import matrix_from_quat
 
 from .asset import PLATFORM_HALF_SIZE
 from .contact_geometry import (
-  complete_face_contact,
+  contact_hull_area,
   ordered_intersection,
   polygon_constraints,
   rectangle_constraints,
@@ -91,8 +91,8 @@ class StabilitySensorCfg(SensorCfg):
   geometry_tolerance: float = 0.0
   """Metres relative to the last rebuild; zero gives exact geometry reuse."""
   invalid_penalty: float = 10.0
-  contact_height_tolerance: float = 0.002
-  contact_height_spread: float = 0.001
+  minimum_contact_area: float = 1e-6
+  """Square metres; smaller contact hulls receive the fixed invalid penalty."""
   geometry_batch_size: int = 64
 
   def build(self):
@@ -157,6 +157,7 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.full_tray = torch.zeros(n, device=device, dtype=torch.bool)
     self.body_J = torch.empty(n, 3, 3, device=device, dtype=torch.float64)
     self.face_contact = torch.zeros_like(self.full_tray)
+    self.contact_area = torch.zeros(n, device=device, dtype=torch.float64)
     self.rectangle = torch.zeros_like(self.full_tray)
     self.total = torch.zeros(n, device=device)
     self.margin_sum = torch.zeros_like(self.total)
@@ -226,12 +227,12 @@ class StabilitySensor(Sensor[torch.Tensor]):
     )
     bottom_3d = local @ relative.transpose(-1, -2) + position[:, None]
     bottom = bottom_3d[..., :2]
-    face_contact = complete_face_contact(
-      bottom_3d,
-      relative[:, 2, 2],
-      cfg.contact_height_tolerance,
-      cfg.contact_height_spread,
-    )
+    contacts = self.contact_points._extract_sensor_data()
+    positions = torch.einsum("nij,nkj->nki", Rt, contacts.pos.double() - top[:, None])[
+      ..., :2
+    ]
+    self.contact_area.copy_(contact_hull_area(positions, contacts.found > 0))
+    face_contact = self.contact_area >= cfg.minimum_contact_area
     edges = bottom.roll(-1, 1) - bottom
     delta = self.tray[None, None] - bottom[:, :, None]
     full = (
@@ -367,4 +368,5 @@ def stability_penalty(env: ManagerBasedRlEnv):
   env.extras["log"]["Stability/margin"] = sensor.mean_margin.mean()
   env.extras["log"]["Stability/full_tray"] = sensor.full_tray.float().mean()
   env.extras["log"]["Stability/face_contact"] = sensor.face_contact.float().mean()
+  env.extras["log"]["Stability/contact_area"] = sensor.contact_area.mean()
   return cost

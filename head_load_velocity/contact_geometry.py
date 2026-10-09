@@ -3,13 +3,33 @@
 import torch
 
 
-def complete_face_contact(bottom, normal_z, height_tolerance, height_spread):
-  height = bottom[..., 2]
-  return (
-    (height.abs().amax(1) <= height_tolerance)
-    & ((height.amax(1) - height.amin(1)) <= height_spread)
-    & (normal_z > 0)
+def contact_hull_area(points, valid):
+  """Exact 2D convex-hull area via oriented supporting edges, in batched Torch."""
+  same = (points[:, :, None] - points[:, None]).abs().amax(-1) <= 1e-12
+  earlier = torch.ones(same.shape[-2:], device=points.device, dtype=torch.bool).tril(-1)
+  valid = valid & ~(same & earlier & valid[:, None]).any(-1)
+  count = valid.sum(1)
+  center = (points * valid[..., None]).sum(1) / count.clamp_min(1)[:, None]
+  p = points - center[:, None]
+  edge = p[:, None] - p[:, :, None]
+  delta = p[:, None, None] - p[:, :, None, None]
+  cross = edge[..., None, 0] * delta[..., 1] - edge[..., None, 1] * delta[..., 0]
+  dot = (edge[..., None, :] * delta).sum(-1)
+  length2 = edge.square().sum(-1)
+  # Reject non-supporting edges and skip collinear intermediate vertices.
+  left = ((cross >= -1e-14) | ~valid[:, None, None]).all(-1)
+  between = (
+    (cross.abs() <= 1e-14)
+    & (dot > 1e-14)
+    & (dot < length2[..., None] - 1e-14)
+    & valid[:, None, None]
   )
+  hull_edge = (
+    left & ~between.any(-1) & valid[:, :, None] & valid[:, None] & (length2 > 1e-24)
+  )
+  terms = p[:, :, None, 0] * p[:, None, :, 1] - p[:, :, None, 1] * p[:, None, :, 0]
+  area = (terms * hull_edge).sum((1, 2)).abs() / 2
+  return torch.where(count >= 3, area, 0)
 
 
 def pack(values, valid):

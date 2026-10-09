@@ -56,10 +56,11 @@ tolerance compares projected vertices against the last rebuild and introduces
 a geometric approximation. Denominators are reused only when geometry, COM
 and expressed inertia are unchanged. Body-frame inertia is cached at reset.
 Empty support regions and nonplanar face contact receive fixed cost `10`.
-Face contact requires all four bottom corners to lie within `0.002 m` of the
-tray plane and their height spread to be at most `0.001 m`. These configurable
-soft-contact tolerances distinguish normal penetration from lift/tilt; they
-do not require the payload to cover the entire tray. Evaluation uses float64.
+Contact support is rejected when the convex hull of unmerged contact points,
+projected into the tray plane, has area below `minimum_contact_area=1e-6 m^2`.
+Zero, one, two or collinear points have zero area. This support-area criterion
+replaces corner-height detection; it does not identify every possible tilt.
+The hull area is computed in batched Torch. Evaluation uses float64.
 
 After installation, run the mathematical regression checks with:
 

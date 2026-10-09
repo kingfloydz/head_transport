@@ -84,6 +84,16 @@ def head_load_velocity_env_cfg(
   cfg.observations["actor"].history_length = HISTORY_LENGTH + 1
   cfg.observations["actor"].flatten_history_dim = False
   cfg.scene.sensors += (
+    ContactSensorCfg(
+      name="stability_contact_points",
+      primary=ContactMatch(mode="geom", pattern="payload_collision", entity="payload"),
+      secondary=ContactMatch(
+        mode="geom", pattern="head_platform_collision", entity="robot"
+      ),
+      fields=("found", "pos"),
+      reduce="none",
+      num_slots=8,
+    ),
     StabilitySensorCfg(name="payload_stability"),
     ContactSensorCfg(
       name="payload_platform_contact",

@@ -13,7 +13,7 @@ from mjlab.tasks.head_load_velocity.stability import (
 )
 from mjlab.tasks.head_load_velocity.contact_geometry import (
   rectangle_constraints,
-  complete_face_contact,
+  contact_hull_area,
 )
 
 
@@ -93,15 +93,32 @@ class StabilityTests(unittest.TestCase):
       eq = ConvexHull(G[:, [0, 1, 3, 4, 5]]).equations[:, [0, 1, 5, 2, 3, 4]]
       self.assert_same_facets(torch_polygon(p), eq)
 
-  def test_face_contact_rejects_lift_tilt_and_inversion(self):
-    bottom = torch.zeros(4, 4, 3, dtype=torch.float64)
-    bottom[0, :, 2] = -0.0001
-    bottom[1, :, 2] = 0.02
-    bottom[2, :, 2] = torch.tensor([0.0, 0.0, 0.003, 0.003])
-    normal = torch.tensor([1.0, 1.0, 1.0, -1.0])
-    self.assertEqual(
-      complete_face_contact(bottom, normal, 0.002, 0.001).tolist(),
-      [True, False, False, False],
+  def test_contact_hull_area_degenerate_and_interior_points(self):
+    p = (
+      torch.tensor(
+        [[[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5], [0.5, 0], [0, 0], [0, 0]]],
+        dtype=torch.float64,
+      )
+      .expand(5, -1, -1)
+      .clone()
+    )
+    valid = torch.ones(5, 8, dtype=torch.bool)
+    valid[1] = False
+    valid[2, 2:] = False
+    p[3, :, 1] = 0
+    p[4] *= 1e-4
+    torch.testing.assert_close(
+      contact_hull_area(p, valid), torch.tensor([1, 0, 0, 0, 1e-8], dtype=torch.float64)
+    )
+
+  def test_contact_hull_area_random_points(self):
+    rng = np.random.default_rng(21)
+    p = rng.uniform(-0.1, 0.1, (20, 8, 2))
+    actual = contact_hull_area(
+      torch.tensor(p), torch.ones(20, 8, dtype=torch.bool)
+    ).numpy()
+    np.testing.assert_allclose(
+      actual, [ConvexHull(x).volume for x in p], rtol=1e-12, atol=1e-14
     )
 
   def test_square_matches_general_facets(self):
