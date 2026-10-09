@@ -69,7 +69,7 @@ def reset_payload(
   offset = -com
   offset[:, :2] += torch.empty_like(com[:, :2]).uniform_(-0.03, 0.03)
   offset[:, 2] = size[:, 2] / 2
-  stability.set_payload(env_ids, size, offset[:, :2])
+  stability.set_payload(env_ids)
   position += quat_apply(rotation, offset)
   payload.write_root_link_pose_to_sim(torch.cat((position, rotation), -1), env_ids)
   payload.write_root_link_velocity_to_sim(
