@@ -21,9 +21,9 @@ from mjlab.utils.lab_api.math import matrix_from_quat
 from .asset import PLATFORM_HALF_SIZE
 from .contact_geometry import (
   contact_hull_area,
-  ordered_intersection,
+  intersect_tray,
+  parallelogram_mask,
   polygon_constraints,
-  rectangle_constraints,
 )
 
 
@@ -46,33 +46,6 @@ def square_constraints(half_size: float) -> np.ndarray:
   return H
 
 
-def support_vertices(bottom: torch.Tensor, tray: torch.Tensor):
-  """Batched convex quadrilateral intersection, including full-tray detection."""
-
-  def cross(a, b):
-    return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
-
-  edges = bottom.roll(-1, 1) - bottom
-  inside = cross(edges[:, :, None], tray[None, None] - bottom[:, :, None]) >= 0
-  tray_inside = inside.all(1)
-  half = tray.abs().amax(0)
-  bottom_inside = (bottom.abs() <= half).all(-1)
-  a = bottom[:, :, None]
-  e = edges[:, :, None]
-  b = tray[None, None]
-  f = (tray.roll(-1, 0) - tray)[None, None]
-  det = cross(e, f)
-  nonparallel = det != 0
-  divisor = torch.where(nonparallel, det, 1)
-  t = cross(b - a, f) / divisor
-  u = cross(b - a, e) / divisor
-  valid = nonparallel & (t >= 0) & (t <= 1) & (u >= 0) & (u <= 1)
-  intersections = (a + t[..., None] * e).flatten(1, 2)
-  vertices = torch.cat((tray.expand(len(bottom), -1, -1), bottom, intersections), 1)
-  mask = torch.cat((tray_inside, bottom_inside, valid.flatten(1)), 1)
-  return vertices, mask, tray_inside.all(-1)
-
-
 def margin_denominator(H, c, J, a_scale, alpha_scale):
   hf, ht = H[..., :3], H[..., 3:]
   v = hf - torch.linalg.cross(c[:, None], ht)
@@ -88,7 +61,7 @@ class StabilitySensorCfg(SensorCfg):
   angular_acceleration_scale: float = 10.0
   target_margin: float = 1.0
   temperature: float = 0.5
-  geometry_tolerance: float = 0.0
+  geometry_tolerance: float = 5e-5
   """Metres relative to the last rebuild; zero gives exact geometry reuse."""
   invalid_penalty: float = 10.0
   minimum_contact_area: float = 1e-6
@@ -158,7 +131,7 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.body_J = torch.empty(n, 3, 3, device=device, dtype=torch.float64)
     self.face_contact = torch.zeros_like(self.full_tray)
     self.contact_area = torch.zeros(n, device=device, dtype=torch.float64)
-    self.rectangle = torch.zeros_like(self.full_tray)
+    self.parallelogram = torch.zeros_like(self.full_tray)
     self.total = torch.zeros(n, device=device)
     self.margin_sum = torch.zeros_like(self.total)
     self.mean_margin = torch.zeros_like(self.total)
@@ -191,6 +164,7 @@ class StabilitySensor(Sensor[torch.Tensor]):
     )
     self.cached_bottom[env_ids] = float("inf")
     self.full_tray[env_ids] = False
+    self.parallelogram[env_ids] = False
     self.cached_c[env_ids] = float("inf")
 
   def reset(self, env_ids=None):
@@ -249,45 +223,43 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.rows[full_changed, : len(self.square)] = True
     ids = (changed & ~full).nonzero().flatten()
     for group in ids.split(cfg.geometry_batch_size):
-      vertices, mask, _ = support_vertices(bottom[group], self.tray)
-      p, valid = ordered_intersection(vertices, mask)
-      low = p.masked_fill(~valid[..., None], float("inf")).amin(1)
-      high = p.masked_fill(~valid[..., None], -float("inf")).amax(1)
-      half = (high - low) / 2
-      corners = ((p - low[:, None]).abs() <= 1e-12) | (
-        (p - high[:, None]).abs() <= 1e-12
-      )
-      rect = (valid.sum(1) == 4) & (corners.all(-1) | ~valid).all(1)
-      e0, e1 = p[:, 1] - p[:, 0], p[:, 2] - p[:, 1]
-      rotated_rect = (
-        (valid.sum(1) == 4)
-        & ((e0 * e1).sum(-1).abs() <= 1e-12)
-        & ((p[:, 0] + p[:, 2] - p[:, 1] - p[:, 3]).abs().amax(-1) <= 1e-12)
-        & ~rect
-      )
-      self.rectangle[group] = rect | rotated_rect
-      rect_ids = group[rect]
-      H = rectangle_constraints(
-        half[rect], (high[rect] + low[rect]) / 2, self.mu[rect_ids]
-      )
-      self._store_constraints(
-        rect_ids, H, torch.ones(H.shape[:2], device=R.device, dtype=torch.bool)
-      )
-      rotated_ids = group[rotated_rect]
-      if len(rotated_ids):
+      p, valid = intersect_tray(bottom[group], self.tray.abs().amax(0))
+      count = valid.sum(1)
+      following = (torch.arange(8, device=R.device)[None] + 1) % count.clamp_min(1)[
+        :, None
+      ]
+      q = p.gather(1, following[..., None].expand(-1, -1, 2))
+      area = ((p[..., 0] * q[..., 1] - p[..., 1] * q[..., 0]) * valid).sum(1).abs() / 2
+      supported = (count >= 3) & (area > 1e-10)
+      para = parallelogram_mask(p, valid) & supported
+      self.parallelogram[group] = para
+      para_ids = group[para]
+      if len(para_ids):
         H, hv = polygon_constraints(
-          p[rotated_rect], valid[rotated_rect], self.mu[rotated_ids], rectangle=True
+          p[para], valid[para], self.mu[para_ids], parallelogram=True
         )
-        self._store_constraints(rotated_ids, H, hv)
-      nonrect = ~rect & ~rotated_rect & (valid.sum(1) >= 3) & (half.amin(1) > 1e-10)
-      general_ids = group[nonrect]
+        self._store_constraints(para_ids, H, hv)
+      general = supported & ~para
+      general_ids = group[general]
       if len(general_ids):
-        H, hv = polygon_constraints(p[nonrect], valid[nonrect], self.mu[general_ids])
+        source_edges = torch.cat(
+          (
+            edges[general_ids, :2],
+            torch.eye(2, device=R.device, dtype=R.dtype).expand(
+              len(general_ids), -1, -1
+            ),
+          ),
+          1,
+        )
+        H, hv = polygon_constraints(
+          p[general], valid[general], self.mu[general_ids], edge_directions=source_edges
+        )
         self._store_constraints(general_ids, H, hv)
-      empty = group[~rect & ~rotated_rect & ~nonrect]
+      empty = group[~supported]
       self.rows[empty] = False
     self.cached_bottom[changed] = bottom[changed]
     self.full_tray.copy_(full)
+    self.parallelogram[full | ~face_contact] = False
     self.face_contact.copy_(face_contact)
     c = (Rt @ (data.xipos[:, body].double() - top)[..., None]).squeeze(-1)
     J = relative @ self.body_J @ relative.transpose(-1, -2)
@@ -369,4 +341,5 @@ def stability_penalty(env: ManagerBasedRlEnv):
   env.extras["log"]["Stability/full_tray"] = sensor.full_tray.float().mean()
   env.extras["log"]["Stability/face_contact"] = sensor.face_contact.float().mean()
   env.extras["log"]["Stability/contact_area"] = sensor.contact_area.mean()
+  env.extras["log"]["Stability/parallelogram"] = sensor.parallelogram.float().mean()
   return cost

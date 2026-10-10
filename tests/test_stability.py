@@ -9,11 +9,12 @@ from mjlab.tasks.head_load_velocity.stability import (
   margin_denominator,
   polygon_constraints,
   square_constraints,
-  support_vertices,
 )
 from mjlab.tasks.head_load_velocity.contact_geometry import (
-  rectangle_constraints,
   contact_hull_area,
+  intersect_tray,
+  parallelogram_mask,
+  pack,
 )
 
 
@@ -52,11 +53,14 @@ class StabilityTests(unittest.TestCase):
       center = np.array([0.015, -0.02])
       mu = 0.63
       p = np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]]) * half + center
-      H = rectangle_constraints(
-        torch.tensor([half], dtype=torch.float64),
-        torch.tensor(center[None]),
+      points = torch.tensor(p)[None]
+      H, hv = polygon_constraints(
+        points,
+        torch.ones(1, 4, dtype=torch.bool),
         torch.tensor([mu], dtype=torch.float64),
-      )[0].numpy()
+        parallelogram=True,
+      )
+      H = H[0, hv[0]].numpy()
       reference = torch_polygon(p)
       reference[:, [0, 1, 5]] /= mu
       # The square limit has redundant copies of otherwise distinct facets.
@@ -79,7 +83,7 @@ class StabilityTests(unittest.TestCase):
     points[0, :4] = torch.tensor(p)
     mask = torch.arange(8)[None] < 4
     H, hv = polygon_constraints(
-      points, mask, torch.ones(1, dtype=torch.float64), rectangle=True
+      points, mask, torch.ones(1, dtype=torch.float64), parallelogram=True
     )
     self.assert_same_facets(H[0, hv[0]].numpy(), torch_polygon(p))
 
@@ -162,11 +166,90 @@ class StabilityTests(unittest.TestCase):
       [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]], dtype=torch.float64
     )
     bottom = torch.stack((tray * 2, tray + tray.new_tensor([0.1, 0.0])))
-    vertices, mask, full = support_vertices(bottom, tray)
-    self.assertEqual(full.tolist(), [True, False])
+    vertices, mask = intersect_tray(bottom, tray.abs().amax(0))
+    self.assertEqual(mask.sum(1).tolist(), [4, 4])
+    torch.testing.assert_close(
+      contact_hull_area(vertices, mask), torch.tensor([0.04, 0.02], dtype=torch.float64)
+    )
     partial = vertices[1, mask[1]]
     self.assertTrue(((partial[:, 0] >= 0) & (partial[:, 0] <= 0.1)).all())
     self.assertTrue((partial[:, 1].abs() <= 0.1).all())
+
+  def test_skew_parallelograms_and_trapezoid(self):
+    p = torch.tensor(
+      [
+        [[-0.08, -0.06], [0.04, -0.03], [0.08, 0.06], [-0.04, 0.03]],
+        [[-0.1, -0.1], [0.1, -0.1], [0.07, 0.1], [-0.04, 0.1]],
+      ],
+      dtype=torch.float64,
+    )
+    valid = torch.ones(2, 4, dtype=torch.bool)
+    self.assertEqual(parallelogram_mask(p, valid).tolist(), [True, False])
+    H, hv = polygon_constraints(
+      p[:1], valid[:1], torch.ones(1, dtype=torch.float64), parallelogram=True
+    )
+    self.assert_same_facets(H[0, hv[0]].numpy(), torch_polygon(p[0].numpy()))
+
+  def test_prefix_compaction_masks_invalid_nan(self):
+    values = torch.tensor(
+      [[[float("nan")], [2.0], [3.0], [float("nan")]], [[1.0], [2.0], [3.0], [4.0]]]
+    )
+    valid = torch.tensor([[False, True, True, False], [False, False, False, False]])
+    p, v = pack(values, valid, 4)
+    torch.testing.assert_close(
+      p, torch.tensor([[[2.0], [3.0], [0.0], [0.0]], [[0.0], [0.0], [0.0], [0.0]]])
+    )
+    self.assertEqual(v.sum(1).tolist(), [2, 0])
+
+  def test_intersection_disjoint_touching_and_clockwise(self):
+    p = torch.tensor(
+      [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]], dtype=torch.float64
+    )
+    bottom = torch.stack(
+      (
+        p,
+        p.flip(0),
+        p + torch.tensor([0.3, 0.0]),
+        p + torch.tensor([0.2, 0.0], dtype=torch.float64),
+      )
+    )
+    points, valid = intersect_tray(bottom, p.new_tensor([0.1, 0.1]))
+    torch.testing.assert_close(
+      contact_hull_area(points, valid), p.new_tensor([0.04, 0.04, 0.0, 0.0])
+    )
+
+  def test_intersection_against_independent_geometry(self):
+    from shapely.geometry import Polygon
+
+    rng = np.random.default_rng(301)
+    source = []
+    corners = np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]])
+    for _ in range(30):
+      angle = rng.uniform(-3, 3)
+      R = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+      shear = np.array([[1.0, rng.uniform(-0.4, 0.4)], [0.0, 1.0]])
+      source.append(
+        corners * rng.uniform(0.04, 0.2, 2) @ shear.T @ R.T
+        + rng.uniform(-0.12, 0.12, 2)
+      )
+    bottom = torch.tensor(np.array(source))
+    p, v = intersect_tray(bottom, bottom.new_tensor([0.1, 0.1]))
+    expected = [Polygon(x).intersection(Polygon(corners * 0.1)).area for x in source]
+    np.testing.assert_allclose(contact_hull_area(p, v).numpy(), expected, atol=1e-12)
+    edges = bottom.roll(-1, 1) - bottom
+    for i in range(8):
+      if expected[i] < 1e-10:
+        continue
+      directions = torch.cat(
+        (edges[i : i + 1, :2], torch.eye(2, dtype=bottom.dtype)[None]), 1
+      )
+      H, hv = polygon_constraints(
+        p[i : i + 1],
+        v[i : i + 1],
+        torch.ones(1, dtype=bottom.dtype),
+        edge_directions=directions,
+      )
+      self.assert_same_facets(H[0, hv[0]].numpy(), torch_polygon(p[i, v[i]].numpy()))
 
   def test_denominator_is_pullback_norm(self):
     H = torch.tensor(square_constraints(0.1))[None]

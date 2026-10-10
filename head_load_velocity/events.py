@@ -58,7 +58,8 @@ def reset_payload(
   position = robot.data.site_pos_w[env_ids][:, platform_cfg.site_ids].squeeze(1)
   rotation = robot.data.site_quat_w[env_ids][:, platform_cfg.site_ids].squeeze(1)
   top_offset = torch.zeros_like(position)
-  top_offset[:, 2] = PLATFORM_HALF_SIZE[2]
+  # Start 0.1 mm below the tray plane along its normal.
+  top_offset[:, 2] = PLATFORM_HALF_SIZE[2] - 1e-4
   position = position + quat_apply(rotation, top_offset)
   rotation = yaw_quat(rotation)
   stability = cast(StabilitySensor, env.scene["payload_stability"])

@@ -32,96 +32,95 @@ def contact_hull_area(points, valid):
   return torch.where(count >= 3, area, 0)
 
 
-def pack(values, valid):
-  """Compact variable row counts within a batch, preserving row order."""
+def pack(values, valid, capacity=None):
+  """Stable prefix-sum compaction; fixed capacity avoids host synchronization.
+
+  Callers using a capacity must supply a proven upper bound on valid rows.
+  Variable capacities are used only at expensive algebra stage boundaries.
+  """
   counts = valid.sum(1)
-  width = int(counts.max())
-  order = torch.argsort(~valid, dim=1, stable=True)[:, :width]
-  result = values.gather(1, order[..., None].expand(-1, -1, values.shape[-1]))
+  width = capacity if capacity is not None else max(1, int(counts.max()))
+  index = (valid.cumsum(1) - 1).masked_fill(~valid, 0)
+  result = values.new_zeros(values.shape[0], width, values.shape[-1])
+  result.scatter_add_(
+    1, index[..., None].expand_as(values), values.masked_fill(~valid[..., None], 0)
+  )
   return result, torch.arange(width, device=values.device)[None] < counts[:, None]
 
 
-def unique_directions(u, valid):
+def unique_directions(u, valid, capacity=None):
   norms = torch.linalg.vector_norm(u, dim=-1)
   valid = valid & (norms > 1e-12)
   u = u / torch.where(valid, norms, 1)[..., None]
   same = (u[:, :, None] - u[:, None]).abs().amax(-1) <= 1e-12
   earlier = torch.ones(same.shape[-2:], device=u.device, dtype=torch.bool).tril(-1)
   duplicate = (same & earlier & valid[:, None]).any(-1)
-  return pack(u, valid & ~duplicate)
+  return pack(u, valid & ~duplicate, capacity)
 
 
-def ordered_intersection(vertices, valid):
-  same = (vertices[:, :, None] - vertices[:, None]).abs().amax(-1) <= 1e-12
-  earlier = torch.ones(same.shape[-2:], device=vertices.device, dtype=torch.bool).tril(
-    -1
-  )
-  valid = valid & ~(same & earlier & valid[:, None]).any(-1)
-  center = (vertices * valid[..., None]).sum(1) / valid.sum(1).clamp_min(1)[:, None]
-  delta = vertices - center[:, None]
-  angle = torch.atan2(delta[..., 1], delta[..., 0]).masked_fill(~valid, float("inf"))
-  order = angle.argsort(1)
-  vertices = vertices.gather(1, order[..., None].expand(-1, -1, 2))
-  valid = valid.gather(1, order)
-  return vertices[:, :8], valid[:, :8]
+def intersect_tray(bottom, half):
+  """Clip a projected rectangular face against four tray half-planes.
+
+  Four vertices grow to at most eight. Boundary order is preserved without
+  candidate-point sorting, all-pairs deduplication, or variable-size buffers.
+  """
+  area = (
+    bottom[..., 0] * bottom.roll(-1, 1)[..., 1]
+    - bottom[..., 1] * bottom.roll(-1, 1)[..., 0]
+  ).sum(1)
+  p = torch.where((area < 0)[:, None, None], bottom.flip(1), bottom)
+  valid = torch.ones(p.shape[:2], device=p.device, dtype=torch.bool)
+  for axis, sign in ((0, 1), (0, -1), (1, 1), (1, -1)):
+    count = valid.sum(1)
+    next_index = (
+      torch.arange(p.shape[1], device=p.device)[None] + 1
+    ) % count.clamp_min(1)[:, None]
+    q = p.gather(1, next_index[..., None].expand(-1, -1, 2))
+    a, b = half[axis] - sign * p[..., axis], half[axis] - sign * q[..., axis]
+    inside = valid & (a >= 0)
+    crossing = valid & (((a > 0) & (b < 0)) | ((a < 0) & (b > 0)))
+    fraction = a / torch.where(crossing, a - b, 1)
+    hit = p + fraction[..., None] * (q - p)
+    points = torch.stack((p, hit), 2).flatten(1, 2)
+    keep = torch.stack((inside, crossing), 2).flatten(1)
+    p, valid = pack(points, keep, p.shape[1] + 1)
+  return p, valid
 
 
-def rectangle_constraints(half, center, mu):
-  """32 analytic facets; quarter-turn symmetry handles either long axis."""
-  swap = half[:, 1] > half[:, 0]
-  a, b = half.amax(1), half.amin(1)
-  z = torch.zeros_like(a)
-  one = torch.ones_like(a)
-  L, d = a + b, (a - b) / a
-  rows = []
-  for s in (-1, 1):
-    for t in (-1, 1):
-      rows.append(torch.stack((s * one, t * one, -one, z, z, z), -1))
-      rows.append(torch.stack((s * one, z, -one, t / L, z, s * t / L), -1))
-      rows.append(torch.stack((z, s * one, -one, z, t / L, s * t / L), -1))
-      rows.append(torch.stack((s * d, z, -one, z, z, t / a), -1))
-      rows.append(torch.stack((z, s * d, -one, z, t * d / a, s * t / a), -1))
-      for t_z in (-1, 1):
-        rows.append(
-          torch.stack(
-            (s * b / L, t * a / L, -one, s * t_z / L, t * t_z / L, t_z / L), -1
-          )
-        )
-  for sign in (-1, 1):
-    rows.append(torch.stack((z, z, -one, sign / b, z, z), -1))
-    rows.append(torch.stack((z, z, -one, z, sign / a, z), -1))
-  H = torch.stack(rows, 1)
-  rotated = H[..., [1, 0, 2, 4, 3, 5]].clone()
-  rotated[..., [0, 3]] *= -1
-  H = torch.where(swap[:, None, None], rotated, H)
-  H[..., [0, 1, 5]] /= mu[:, None, None]
-  offset = torch.cat((center, torch.zeros_like(center[:, :1])), -1)
-  H[..., :3] += torch.linalg.cross(offset[:, None], H[..., 3:])
-  return H
+def parallelogram_mask(p, valid):
+  """Opposite vertices have the same midpoint; right angles are not required."""
+  residual = (p[:, 0] + p[:, 2] - p[:, 1] - p[:, 3]).abs().amax(-1)
+  return (valid.sum(1) == 4) & (residual <= 1e-12)
 
 
-def polygon_constraints(p, valid, mu, rectangle=False):
+def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None):
   """Finite support directions and Fourier--Motzkin elimination, on device.
 
   Facet filtering uses the rank of incident generators. No convex-hull library
   or host transfer of geometry is used. Inputs are CCW, padded to eight vertices.
   """
   n, width, _ = p.shape
-  count = valid.sum(1)
-  following = (torch.arange(width, device=p.device)[None] + 1) % count[:, None]
-  edges = p.gather(1, following[..., None].expand(-1, -1, 2)) - p
-  edges = torch.cat((edges, torch.zeros_like(edges[..., :1])), -1)
-  if rectangle:
-    # Opposite rectangle edges differ only by sign; +/- directions cover them.
-    edges = edges[:, :2]
+  if parallelogram:
+    edges = p[:, 1:3] - p[:, :2]
     edge_valid = valid[:, :2]
+  elif edge_directions is not None:
+    # Every edge of an intersection belongs to one of its input polygons.
+    edges = edge_directions
+    edge_valid = torch.ones(edges.shape[:2], device=p.device, dtype=torch.bool)
   else:
+    count = valid.sum(1)
+    following = (torch.arange(width, device=p.device)[None] + 1) % count[:, None]
+    edges = p.gather(1, following[..., None].expand(-1, -1, 2)) - p
     edge_valid = valid
+  edges = torch.cat((edges, torch.zeros_like(edges[..., :1])), -1)
+  if not parallelogram:
     # For two intersecting rectangles there are at most four unoriented edge
     # directions. Remove parallel/opposite edges before the quadratic pairing.
     flip = (edges[..., 0] < 0) | ((edges[..., 0] == 0) & (edges[..., 1] < 0))
     edges = torch.where(flip[..., None], -edges, edges)
-    edges, edge_valid = unique_directions(edges, edge_valid)
+    edges, edge_valid = unique_directions(
+      edges, edge_valid, edges.shape[1] if edge_directions is not None else None
+    )
   d = p.new_tensor([[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1]])
   normals = torch.linalg.cross(edges[:, :, None], d[None, None])
   candidates = []
@@ -137,7 +136,7 @@ def polygon_constraints(p, valid, mu, rectangle=False):
   u, uv = unique_directions(torch.cat((u, -u), 1), uv.repeat(1, 2))
   r = torch.cat((p, torch.zeros_like(p[..., :1])), -1)
   moments = torch.linalg.cross(r[:, :, None], d[None, None])
-  if rectangle:
+  if parallelogram:
     center = p[:, :4].mean(1)
     q1, q2 = (p[:, 1] - p[:, 0]) / 2, (p[:, 2] - p[:, 1]) / 2
 
@@ -147,7 +146,7 @@ def polygon_constraints(p, valid, mu, rectangle=False):
         "nuc,njc->nuj", u, torch.linalg.cross(vector[:, None], d[None])
       )
 
-    # Rectangle support: center term + absolute projections of its half-edges.
+    # P = center +/- q1 +/- q2; q1 and q2 need not be perpendicular.
     psi = project(center) + project(q1).abs() + project(q2).abs()
   else:
     psi = (
@@ -168,8 +167,12 @@ def polygon_constraints(p, valid, mu, rectangle=False):
   positive, negative = uv & (gamma > 1e-12), uv & (gamma < -1e-12)
   zero = uv & (gamma.abs() <= 1e-12)
   bounds = g / torch.where(positive | negative, gamma, 1)[..., None]
-  lower, lv = pack(bounds, positive)
-  upper, vv = pack(bounds, negative)
+  # Both bound families share one compaction/host count instead of two.
+  packed, packed_valid = pack(
+    torch.cat((bounds, bounds), 0), torch.cat((positive, negative), 0)
+  )
+  lower, upper = packed.chunk(2, 0)
+  lv, vv = packed_valid.chunk(2, 0)
   base_l = p.new_tensor([[1, 0, 0, 0, 0, 0], [-1, 0, 0, 0, 0, 0]]).expand(n, -1, -1)
   base_v = p.new_tensor([[0, 1, 1, 0, 0, 0], [0, -1, 1, 0, 0, 0]]).expand(n, -1, -1)
   lower, upper = torch.cat((base_l, lower), 1), torch.cat((base_v, upper), 1)
@@ -191,9 +194,8 @@ def polygon_constraints(p, valid, mu, rectangle=False):
     possible = hv & (incidence.sum(-1) >= 5)
     kept.append(H)
     masks.append(possible)
-  H0, zvalid = pack(g, zero)
-  H = torch.cat((*kept, H0), 1)
-  hv = torch.cat((*masks, zvalid), 1)
+  H = torch.cat((*kept, g), 1)
+  hv = torch.cat((*masks, zero), 1)
   H, hv = pack(H, hv)
   H, hv = unique_directions(H, hv)
   # Remove lower-dimensional supporting faces retained by the incidence count.
