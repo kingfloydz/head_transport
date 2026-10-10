@@ -127,15 +127,15 @@ def head_load_velocity_env_cfg(
       func=PayloadCurriculum, params={"initial_stage": 1}
     )
   }
-  cfg.rewards["track_linear_velocity"].weight = 5.0
+  cfg.rewards["track_linear_velocity"].weight = 6.0
   cfg.rewards["track_linear_velocity"].func = track_linear_velocity
   cfg.rewards["stability_margin"] = RewardTermCfg(
     func=stability_penalty,
     weight=-0.1,
   )
   cfg.rewards["track_angular_velocity"].func = track_yaw_velocity
-  cfg.rewards["track_angular_velocity"].weight = 5.0
-  cfg.rewards["track_angular_velocity"].params["std"] = 0.4
+  cfg.rewards["track_angular_velocity"].weight = 6.0
+  cfg.rewards["track_angular_velocity"].params["std"] = 0.35
   # Gate only gait shaping; tracking rewards target rest inside the deadzone.
   for name in ("foot_clearance", "air_time"):
     term = cfg.rewards[name]
@@ -152,6 +152,7 @@ def head_load_velocity_env_cfg(
     cfg.rewards[name].params["command_threshold"] = -1.0
   cfg.rewards["foot_swing_height"].func = DeadzoneSwingHeight
   cfg.rewards["pose"].func = DeadzonePosture
+  cfg.rewards["pose"].weight = 1.4
   cfg.rewards["foot_distance"] = RewardTermCfg(
     func=foot_distance_penalty,
     weight=-1.0,
