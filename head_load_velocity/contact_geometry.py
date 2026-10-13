@@ -32,14 +32,10 @@ def contact_hull_area(points, valid):
   return torch.where(count >= 3, area, 0)
 
 
-def pack(values, valid, capacity=None):
-  """Stable prefix-sum compaction; fixed capacity avoids host synchronization.
-
-  Callers using a capacity must supply a proven upper bound on valid rows.
-  Variable capacities are used only at expensive algebra stage boundaries.
-  """
+def pack(values, valid, capacity):
+  """Stable fixed-capacity prefix-sum compaction on device."""
   counts = valid.sum(1)
-  width = capacity if capacity is not None else max(1, int(counts.max()))
+  width = capacity
   index = (valid.cumsum(1) - 1).masked_fill(~valid, 0)
   result = values.new_zeros(values.shape[0], width, values.shape[-1])
   result.scatter_add_(
@@ -48,7 +44,7 @@ def pack(values, valid, capacity=None):
   return result, torch.arange(width, device=values.device)[None] < counts[:, None]
 
 
-def unique_directions(u, valid, capacity=None):
+def unique_directions(u, valid, capacity):
   norms = torch.linalg.vector_norm(u, dim=-1)
   valid = valid & (norms > 1e-12)
   u = u / torch.where(valid, norms, 1)[..., None]
@@ -96,7 +92,7 @@ def parallelogram_mask(p, valid):
 def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None):
   """Finite support directions and Fourier--Motzkin elimination, on device.
 
-  Facet filtering uses the rank of incident generators. No convex-hull library
+  Facet filtering uses simultaneously exposed edges. No convex-hull library
   or host transfer of geometry is used. Inputs are CCW, padded to eight vertices.
   """
   n, width, _ = p.shape
@@ -118,9 +114,7 @@ def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None)
     # directions. Remove parallel/opposite edges before the quadratic pairing.
     flip = (edges[..., 0] < 0) | ((edges[..., 0] == 0) & (edges[..., 1] < 0))
     edges = torch.where(flip[..., None], -edges, edges)
-    edges, edge_valid = unique_directions(
-      edges, edge_valid, edges.shape[1] if edge_directions is not None else None
-    )
+    edges, edge_valid = unique_directions(edges, edge_valid, edges.shape[1])
   d = p.new_tensor([[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1]])
   normals = torch.linalg.cross(edges[:, :, None], d[None, None])
   candidates = []
@@ -133,7 +127,7 @@ def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None)
   uv = (edge_valid[:, :, None] & edge_valid[:, None]).flatten(1).repeat(1, 6)
   u = torch.cat((d.expand(n, -1, -1), u), 1)
   uv = torch.cat((torch.ones(n, 4, device=p.device, dtype=torch.bool), uv), 1)
-  u, uv = unique_directions(torch.cat((u, -u), 1), uv.repeat(1, 2))
+  u, uv = unique_directions(torch.cat((u, -u), 1), uv.repeat(1, 2), 2 * u.shape[1])
   r = torch.cat((p, torch.zeros_like(p[..., :1])), -1)
   moments = torch.linalg.cross(r[:, :, None], d[None, None])
   if parallelogram:
@@ -154,6 +148,24 @@ def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None)
       .masked_fill(~valid[:, None, :, None], -float("inf"))
       .amax(2)
     )
+  # Retain exactly the reference facets: a full summand or two independent
+  # exposed edge directions. Actual polygon edges supply the outward test.
+  count = valid.sum(1)
+  following = (torch.arange(width, device=p.device)[None] + 1) % count[:, None]
+  next_moments = moments.gather(1, following[..., None, None].expand(-1, -1, 4, 3))
+  projections = torch.einsum("nuc,nvjc->nuvj", u, moments)
+  exposed = (projections - psi[:, :, None]).abs() <= 1e-12
+  next_exposed = exposed.gather(
+    2, following[:, None, :, None].expand(-1, u.shape[1], -1, 4)
+  )
+  edge_vectors = next_moments - moments
+  supported = exposed & next_exposed & valid[:, None, :, None]
+  vectors = (edge_vectors[:, None] * supported[..., None]).flatten(2, 3)
+  first = vectors.gather(
+    2, vectors.square().sum(-1).argmax(2)[..., None, None].expand(-1, -1, 1, 3)
+  )
+  facet = torch.linalg.cross(first, vectors).square().sum(-1).amax(-1) > 1e-24
+  uv &= facet
   gamma = (psi[..., 0] + psi[..., 1] - psi[..., 2] - psi[..., 3]) / 2
   b = torch.stack(
     (
@@ -169,7 +181,7 @@ def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None)
   bounds = g / torch.where(positive | negative, gamma, 1)[..., None]
   # Both bound families share one compaction/host count instead of two.
   packed, packed_valid = pack(
-    torch.cat((bounds, bounds), 0), torch.cat((positive, negative), 0)
+    torch.cat((bounds, bounds), 0), torch.cat((positive, negative), 0), u.shape[1]
   )
   lower, upper = packed.chunk(2, 0)
   lv, vv = packed_valid.chunk(2, 0)
@@ -178,30 +190,25 @@ def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None)
   lower, upper = torch.cat((base_l, lower), 1), torch.cat((base_v, upper), 1)
   ones = torch.ones(n, 2, device=p.device, dtype=torch.bool)
   lv, vv = torch.cat((ones, lv), 1), torch.cat((ones, vv), 1)
+  H = (lower[:, :, None] - upper[:, None]).flatten(1, 2)
+  hv = (lv[:, :, None] & vv[:, None]).flatten(1)
+  H = torch.cat((H, g), 1)
+  hv = torch.cat((hv, zero), 1)
+  norm = torch.linalg.vector_norm(H, dim=-1)
+  hv &= norm > 1e-12
+  H = H / torch.where(hv, norm, 1)[..., None]
+  # Negative-margin rewards depend on using facets, not redundant inequalities.
+  # Compact once before the rank calculation rather than at each algebra stage.
+  H, hv = pack(H, hv, max(1, int(hv.sum(1).max())))
+  H, hv = unique_directions(H, hv, H.shape[1])
   generators = torch.cat((d.expand(n, width, -1, -1), moments), -1).flatten(1, 2)
-  gv = valid.repeat_interleave(4, 1)
-  kept, masks = [], []
-  # Bound memory independently of batch size and number of eliminated pairs.
-  for start in range(0, lower.shape[1], 8):
-    H = (lower[:, start : start + 8, None] - upper[:, None]).flatten(1, 2)
-    hv = (lv[:, start : start + 8, None] & vv[:, None]).flatten(1)
-    norm = torch.linalg.vector_norm(H, dim=-1)
-    hv &= norm > 1e-12
-    H = H / torch.where(hv, norm, 1)[..., None]
-    incidence = (torch.einsum("nhc,ngc->nhg", H, generators).abs() <= 1e-10) & gv[
-      :, None
-    ]
-    possible = hv & (incidence.sum(-1) >= 5)
-    kept.append(H)
-    masks.append(possible)
-  H = torch.cat((*kept, g), 1)
-  hv = torch.cat((*masks, zero), 1)
-  H, hv = pack(H, hv)
-  H, hv = unique_directions(H, hv)
-  # Remove lower-dimensional supporting faces retained by the incidence count.
-  incidence = (torch.einsum("nhc,ngc->nhg", H, generators).abs() <= 1e-10) & gv[:, None]
-  face = generators[:, None] * incidence[..., None]
-  rank = torch.linalg.matrix_rank(face, atol=1e-10, rtol=0)
-  H, hv = pack(H, hv & (rank >= 5))
+  incidence = torch.einsum("nhc,ngc->nhg", H, generators).abs() <= 1e-10
+  incidence &= valid.repeat_interleave(4, 1)[:, None]
+  rank = torch.linalg.matrix_rank(
+    generators[:, None] * incidence[..., None], atol=1e-10, rtol=0
+  )
+  # Upper bound theorem for a 5-polytope with 4V vertices: (4V-3)(4V-4).
+  capacity = 156 if parallelogram else (4 * width - 3) * (4 * width - 4)
+  H, hv = pack(H, hv & (rank >= 5), capacity)
   H[..., [0, 1, 5]] /= mu[:, None, None]
   return H, hv

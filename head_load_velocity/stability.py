@@ -55,18 +55,24 @@ def margin_denominator(H, c, J, a_scale, alpha_scale):
   )
 
 
+def evaluate_margin(H, valid, c, J, w, a_scale, alpha_scale):
+  kappa = margin_denominator(H, c, J, a_scale, alpha_scale)
+  scores = -(H * w[:, None]).sum(-1) / torch.where(valid, kappa, 1)
+  return scores.masked_fill(~valid, float("inf")).amin(-1)
+
+
 @dataclass
 class StabilitySensorCfg(SensorCfg):
   acceleration_scale: float = 1.0
   angular_acceleration_scale: float = 10.0
   target_margin: float = 1.0
   temperature: float = 0.5
-  geometry_tolerance: float = 5e-5
+  geometry_tolerance: float = 1e-4
   """Metres relative to the last rebuild; zero gives exact geometry reuse."""
   invalid_penalty: float = 10.0
   minimum_contact_area: float = 1e-6
   """Square metres; smaller contact hulls receive the fixed invalid penalty."""
-  geometry_batch_size: int = 64
+  geometry_batch_size: int = 512
 
   def build(self):
     sensor = StabilitySensor()
@@ -117,13 +123,29 @@ class StabilitySensor(Sensor[torch.Tensor]):
       square_constraints(PLATFORM_HALF_SIZE[0]), device=device
     )
     self.square_H = self.square.expand(n, -1, -1).clone()
-    self.H = torch.zeros(n, 32, 6, device=device, dtype=torch.float64)
-    self.rows = torch.zeros(n, 32, device=device, dtype=torch.bool)
-    self.kappa = torch.ones(n, 32, device=device, dtype=torch.float64)
-    self.cached_c = torch.full((n, 3), float("inf"), device=device, dtype=torch.float64)
-    self.cached_J = torch.full(
-      (n, 3, 3), float("inf"), device=device, dtype=torch.float64
-    )
+    self.square_rows = torch.ones(n, len(self.square), device=device, dtype=torch.bool)
+    self.tray_half = self.tray.abs().amax(0)
+    self.vertex_indices = torch.arange(8, device=device)
+    self.tray_edges = torch.eye(2, device=device, dtype=torch.float64)
+    # Fixed facet capacities for 16/32 generating rays.
+    self.constraint_buffers = {
+      True: (
+        torch.zeros(n, 156, 6, device=device, dtype=torch.float64),
+        torch.zeros(n, 156, device=device, dtype=torch.bool),
+      ),
+      False: (
+        torch.zeros(n, 812, 6, device=device, dtype=torch.float64),
+        torch.zeros(n, 812, device=device, dtype=torch.bool),
+      ),
+    }
+    self.sample_phase = 0
+    self.evaluate = evaluate_margin
+    self.area = contact_hull_area
+    self.clip = intersect_tray
+    if torch.device(device).type == "cuda":
+      self.evaluate = torch.compile(evaluate_margin)
+      self.area = torch.compile(contact_hull_area)
+      self.clip = torch.compile(intersect_tray)
     self.cached_bottom = torch.full(
       (n, 4, 2), float("inf"), device=device, dtype=torch.float64
     )
@@ -165,7 +187,6 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.cached_bottom[env_ids] = float("inf")
     self.full_tray[env_ids] = False
     self.parallelogram[env_ids] = False
-    self.cached_c[env_ids] = float("inf")
 
   def reset(self, env_ids=None):
     super().reset(env_ids)
@@ -174,19 +195,17 @@ class StabilitySensor(Sensor[torch.Tensor]):
     self.margin_sum[ids] = 0
     self.count[ids] = 0
 
-  def _store_constraints(self, ids, H, valid):
-    capacity = H.shape[1]
-    if capacity > self.H.shape[1]:
-      self.H = F.pad(self.H, (0, 0, 0, capacity - self.H.shape[1]))
-      self.rows = F.pad(self.rows, (0, capacity - self.rows.shape[1]))
-      self.kappa = F.pad(self.kappa, (0, capacity - self.kappa.shape[1]), value=1)
-    self.H[ids] = 0
-    self.rows[ids] = False
-    self.H[ids, :capacity] = H
-    self.rows[ids, :capacity] = valid
+  def _store_constraints(self, ids, H, valid, parallelogram):
+    target, rows = self.constraint_buffers[parallelogram]
+    target[ids] = H
+    rows[ids] = valid
 
   def update(self, dt):
     super().update(dt)
+    # Physics runs at 200 Hz; sample substeps 2 and 4 of each control step.
+    self.sample_phase ^= 1
+    if self.sample_phase:
+      return
     cfg = cast(StabilitySensorCfg, self.cfg)
     data, model = self.robot.data.data, self.robot.data.model
     R = data.site_xmat[:, self.site].double()
@@ -205,7 +224,7 @@ class StabilitySensor(Sensor[torch.Tensor]):
     positions = torch.einsum("nij,nkj->nki", Rt, contacts.pos.double() - top[:, None])[
       ..., :2
     ]
-    self.contact_area.copy_(contact_hull_area(positions, contacts.found > 0))
+    self.contact_area.copy_(self.area(positions, contacts.found > 0))
     face_contact = self.contact_area >= cfg.minimum_contact_area
     edges = bottom.roll(-1, 1) - bottom
     delta = self.tray[None, None] - bottom[:, :, None]
@@ -216,18 +235,11 @@ class StabilitySensor(Sensor[torch.Tensor]):
     changed = (
       (changed & ~full) | (full != self.full_tray) | (face_contact != self.face_contact)
     ) & face_contact
-    full_changed = changed & full
-    self.H[full_changed] = 0
-    self.rows[full_changed] = False
-    self.H[full_changed, : len(self.square)] = self.square_H[full_changed]
-    self.rows[full_changed, : len(self.square)] = True
     ids = (changed & ~full).nonzero().flatten()
     for group in ids.split(cfg.geometry_batch_size):
-      p, valid = intersect_tray(bottom[group], self.tray.abs().amax(0))
+      p, valid = self.clip(bottom[group], self.tray_half)
       count = valid.sum(1)
-      following = (torch.arange(8, device=R.device)[None] + 1) % count.clamp_min(1)[
-        :, None
-      ]
+      following = (self.vertex_indices[None] + 1) % count.clamp_min(1)[:, None]
       q = p.gather(1, following[..., None].expand(-1, -1, 2))
       area = ((p[..., 0] * q[..., 1] - p[..., 1] * q[..., 0]) * valid).sum(1).abs() / 2
       supported = (count >= 3) & (area > 1e-10)
@@ -238,25 +250,23 @@ class StabilitySensor(Sensor[torch.Tensor]):
         H, hv = polygon_constraints(
           p[para], valid[para], self.mu[para_ids], parallelogram=True
         )
-        self._store_constraints(para_ids, H, hv)
+        self._store_constraints(para_ids, H, hv, True)
       general = supported & ~para
       general_ids = group[general]
       if len(general_ids):
         source_edges = torch.cat(
           (
             edges[general_ids, :2],
-            torch.eye(2, device=R.device, dtype=R.dtype).expand(
-              len(general_ids), -1, -1
-            ),
+            self.tray_edges.expand(len(general_ids), -1, -1),
           ),
           1,
         )
         H, hv = polygon_constraints(
           p[general], valid[general], self.mu[general_ids], edge_directions=source_edges
         )
-        self._store_constraints(general_ids, H, hv)
+        self._store_constraints(general_ids, H, hv, False)
       empty = group[~supported]
-      self.rows[empty] = False
+      self.constraint_buffers[False][1][empty] = False
     self.cached_bottom[changed] = bottom[changed]
     self.full_tray.copy_(full)
     self.parallelogram[full | ~face_contact] = False
@@ -287,34 +297,31 @@ class StabilitySensor(Sensor[torch.Tensor]):
       + torch.linalg.cross(c, force)
     )
     w = torch.cat((force, torque), -1)
-    refresh = (
-      changed | (c != self.cached_c).any(-1) | (J != self.cached_J).any((1, 2))
-    ) & face_contact
-    margin = torch.zeros_like(self.mu)
-    # Full-tray evaluation stays at 26 rows regardless of general-polygon capacity.
-    for active, width in [
-      (full, len(self.square)),
-      (face_contact & ~full, self.H.shape[1]),
-    ]:
-      update = refresh & active
-      kappa = margin_denominator(
-        self.H[update, :width],
-        c[update],
-        J[update],
-        cfg.acceleration_scale,
-        cfg.angular_acceleration_scale,
-      )
-      self.kappa[update, :width] = torch.where(self.rows[update, :width], kappa, 1)
-      scores = (
-        -(self.H[active, :width] @ w[active, :, None]).squeeze(-1)
-        / self.kappa[active, :width]
-      )
-      margin[active] = scores.masked_fill(
-        ~self.rows[active, :width], float("inf")
-      ).amin(-1)
-    self.cached_c.copy_(c)
-    self.cached_J.copy_(J)
-    feasible_geometry = self.rows.any(-1) & face_contact
+    margin = self.evaluate(
+      self.square_H,
+      self.square_rows,
+      c,
+      J,
+      w,
+      cfg.acceleration_scale,
+      cfg.angular_acceleration_scale,
+    )
+    feasible_geometry = full.clone()
+    for para in (True, False):
+      active = (face_contact & ~full & (self.parallelogram == para)).nonzero().flatten()
+      H, valid_rows = self.constraint_buffers[para]
+      for group in active.split(cfg.geometry_batch_size):
+        rows = valid_rows[group]
+        margin[group] = self.evaluate(
+          H[group],
+          rows,
+          c[group],
+          J[group],
+          w[group],
+          cfg.acceleration_scale,
+          cfg.angular_acceleration_scale,
+        )
+        feasible_geometry[group] = rows.any(-1)
     penalty = torch.where(
       feasible_geometry,
       F.softplus((cfg.target_margin - margin) / cfg.temperature),

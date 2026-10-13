@@ -44,9 +44,12 @@ class TemporalActor(MLPModel):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.encoder = HistoryEncoder(self.obs_dim)
+    if self._compile_encoder:
+      self.encoder.compile()
 
   def _get_obs_dim(self, obs: TensorDict, obs_groups, obs_set):
     groups = list(obs_groups[obs_set])
+    self._compile_encoder = obs[groups[0]].device.type == "cuda"
     return groups, obs[groups[0]].shape[-1]
 
   def _get_latent_dim(self) -> int:

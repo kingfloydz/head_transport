@@ -44,20 +44,29 @@ affine projections of tilted rectangular faces, use their analytic support
 function (center term plus absolute projections of two half-edges). Trapezoids
 remain on the general path. General polygons use
 finite support directions and Fourier--Motzkin elimination in batched Torch,
-without CPU geometry transfers or a convex-hull library. Geometry rebuilds are
-chunked (`geometry_batch_size=64`) to bound temporary device memory. Intersection
-construction clips against four tray half-planes in fixed 5/6/7/8-vertex buffers;
-it requires no candidate sorting or pairwise point deduplication. The general
-path uses the four source edge directions directly. Stable prefix-sum scatter
-replaces compaction sorting; both bound families share a compaction pass.
-Variable-size algebra stages still synchronize scalar counts, not geometry.
+without CPU geometry transfers or a convex-hull library. Geometry rebuilds use batches of 512.
+Intersection construction clips against four tray half-planes in fixed
+5/6/7/8-vertex buffers. Four source edge directions generate candidates;
+simultaneously exposed actual edges filter the reference facet normals.
+Candidate and bound compaction uses fixed capacities. One scalar count is read
+before final facet filtering; no geometry is transferred to the CPU.
+Final facet filtering is retained because redundant rows can change negative
+margin penalties. Square, parallelogram and general-polygon constraints use
+separate buffers, with fixed polygon capacities of 156 and 812 facets.
+
+The physical simulation runs at 200 Hz and control at 50 Hz. Stability is
+sampled at 100 Hz (substeps 2 and 4), including contact validity, and the two
+penalties are averaged for each control step. This changes temporal sampling
+and can miss short events between samples. Sampling phase is global and is
+not restarted by individual environment resets. CUDA execution compiles the
+contact-area, clipping, margin-evaluation and temporal-encoder kernels.
 
 `StabilitySensorCfg` defaults: acceleration scale `1 m/s^2`, angular acceleration
 scale `10 rad/s^2`, target margin `1`, softplus temperature `0.5`. Reward weight
-is `-0.1`. Geometry reuse defaults to `geometry_tolerance=5e-5 m`; a positive
+is `-0.1`. Geometry reuse defaults to `geometry_tolerance=1e-4 m`; a positive
 tolerance compares projected vertices against the last rebuild and introduces
-a geometric approximation. Denominators are reused only when geometry, COM
-and expressed inertia are unchanged. Body-frame inertia is cached at reset.
+a geometric approximation. Denominators use the current COM and expressed inertia at each sampled step.
+Body-frame inertia is cached at reset.
 Empty support regions and insufficient contact support receive fixed cost `10`.
 Contact support is rejected when the convex hull of unmerged contact points,
 projected into the tray plane, has area below `minimum_contact_area=1e-6 m^2`.
