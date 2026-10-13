@@ -48,9 +48,14 @@ def unique_directions(u, valid, capacity):
   norms = torch.linalg.vector_norm(u, dim=-1)
   valid = valid & (norms > 1e-12)
   u = u / torch.where(valid, norms, 1)[..., None]
-  same = (u[:, :, None] - u[:, None]).abs().amax(-1) <= 1e-12
-  earlier = torch.ones(same.shape[-2:], device=u.device, dtype=torch.bool).tril(-1)
-  duplicate = (same & earlier & valid[:, None]).any(-1)
+  indices = torch.arange(u.shape[1], device=u.device)
+  duplicates = []
+  for start in range(0, u.shape[1], 64):
+    block = u[:, start : start + 64]
+    same = (block[:, :, None] - u[:, None]).abs().amax(-1) <= 1e-12
+    earlier = indices[None] < indices[start : start + 64, None]
+    duplicates.append((same & earlier & valid[:, None]).any(-1))
+  duplicate = torch.cat(duplicates, 1)
   return pack(u, valid & ~duplicate, capacity)
 
 
@@ -179,34 +184,45 @@ def polygon_constraints(p, valid, mu, parallelogram=False, edge_directions=None)
   positive, negative = uv & (gamma > 1e-12), uv & (gamma < -1e-12)
   zero = uv & (gamma.abs() <= 1e-12)
   bounds = g / torch.where(positive | negative, gamma, 1)[..., None]
-  # Both bound families share one compaction/host count instead of two.
-  packed, packed_valid = pack(
-    torch.cat((bounds, bounds), 0), torch.cat((positive, negative), 0), u.shape[1]
-  )
-  lower, upper = packed.chunk(2, 0)
-  lv, vv = packed_valid.chunk(2, 0)
+  # Read both capacities together before the quadratic elimination.
+  sizes = torch.stack((positive.sum(1).amax(), negative.sum(1).amax())).tolist()
+  lower, lv = pack(bounds, positive, max(1, sizes[0]))
+  upper, vv = pack(bounds, negative, max(1, sizes[1]))
   base_l = p.new_tensor([[1, 0, 0, 0, 0, 0], [-1, 0, 0, 0, 0, 0]]).expand(n, -1, -1)
   base_v = p.new_tensor([[0, 1, 1, 0, 0, 0], [0, -1, 1, 0, 0, 0]]).expand(n, -1, -1)
   lower, upper = torch.cat((base_l, lower), 1), torch.cat((base_v, upper), 1)
   ones = torch.ones(n, 2, device=p.device, dtype=torch.bool)
   lv, vv = torch.cat((ones, lv), 1), torch.cat((ones, vv), 1)
-  H = (lower[:, :, None] - upper[:, None]).flatten(1, 2)
-  hv = (lv[:, :, None] & vv[:, None]).flatten(1)
-  H = torch.cat((H, g), 1)
-  hv = torch.cat((hv, zero), 1)
-  norm = torch.linalg.vector_norm(H, dim=-1)
-  hv &= norm > 1e-12
-  H = H / torch.where(hv, norm, 1)[..., None]
-  # Negative-margin rewards depend on using facets, not redundant inequalities.
-  # Compact once before the rank calculation rather than at each algebra stage.
+  generators = torch.cat((d.expand(n, width, -1, -1), moments), -1).flatten(1, 2)
+  gv = valid.repeat_interleave(4, 1)
+  kept, masks = [g], [zero]
+  for start in range(0, lower.shape[1], 16):
+    H = (lower[:, start : start + 16, None] - upper[:, None]).flatten(1, 2)
+    hv = (lv[:, start : start + 16, None] & vv[:, None]).flatten(1)
+    norm = torch.linalg.vector_norm(H, dim=-1)
+    hv &= norm > 1e-12
+    H = H / torch.where(hv, norm, 1)[..., None]
+    incidence = (torch.einsum("nhc,ngc->nhg", H, generators).abs() <= 1e-10) & gv[
+      :, None
+    ]
+    kept.append(H)
+    masks.append(hv & (incidence.sum(-1) >= 5))
+  H, hv = torch.cat(kept, 1), torch.cat(masks, 1)
   H, hv = pack(H, hv, max(1, int(hv.sum(1).max())))
   H, hv = unique_directions(H, hv, H.shape[1])
-  generators = torch.cat((d.expand(n, width, -1, -1), moments), -1).flatten(1, 2)
-  incidence = torch.einsum("nhc,ngc->nhg", H, generators).abs() <= 1e-10
-  incidence &= valid.repeat_interleave(4, 1)[:, None]
-  rank = torch.linalg.matrix_rank(
-    generators[:, None] * incidence[..., None], atol=1e-10, rtol=0
-  )
+  # Retain facets to preserve the negative-margin reward definition.
+  ranks = []
+  for start in range(0, H.shape[1], 64):
+    block = H[:, start : start + 64]
+    incidence = (torch.einsum("nhc,ngc->nhg", block, generators).abs() <= 1e-10) & gv[
+      :, None
+    ]
+    ranks.append(
+      torch.linalg.matrix_rank(
+        generators[:, None] * incidence[..., None], atol=1e-10, rtol=0
+      )
+    )
+  rank = torch.cat(ranks, 1)
   # Upper bound theorem for a 5-polytope with 4V vertices: (4V-3)(4V-4).
   capacity = 156 if parallelogram else (4 * width - 3) * (4 * width - 4)
   H, hv = pack(H, hv & (rank >= 5), capacity)

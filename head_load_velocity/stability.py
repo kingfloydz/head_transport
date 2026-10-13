@@ -72,7 +72,8 @@ class StabilitySensorCfg(SensorCfg):
   invalid_penalty: float = 10.0
   minimum_contact_area: float = 1e-6
   """Square metres; smaller contact hulls receive the fixed invalid penalty."""
-  geometry_batch_size: int = 512
+  geometry_batch_size: int = 256
+  margin_batch_size: int = 512
 
   def build(self):
     sensor = StabilitySensor()
@@ -310,7 +311,7 @@ class StabilitySensor(Sensor[torch.Tensor]):
     for para in (True, False):
       active = (face_contact & ~full & (self.parallelogram == para)).nonzero().flatten()
       H, valid_rows = self.constraint_buffers[para]
-      for group in active.split(cfg.geometry_batch_size):
+      for group in active.split(cfg.margin_batch_size):
         rows = valid_rows[group]
         margin[group] = self.evaluate(
           H[group],

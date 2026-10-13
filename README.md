@@ -44,12 +44,13 @@ affine projections of tilted rectangular faces, use their analytic support
 function (center term plus absolute projections of two half-edges). Trapezoids
 remain on the general path. General polygons use
 finite support directions and Fourier--Motzkin elimination in batched Torch,
-without CPU geometry transfers or a convex-hull library. Geometry rebuilds use batches of 512.
+without CPU geometry transfers or a convex-hull library. Geometry rebuilds use batches of 256; cached margin evaluation uses batches of 512.
 Intersection construction clips against four tray half-planes in fixed
 5/6/7/8-vertex buffers. Four source edge directions generate candidates;
 simultaneously exposed actual edges filter the reference facet normals.
-Candidate and bound compaction uses fixed capacities. One scalar count is read
-before final facet filtering; no geometry is transferred to the CPU.
+Bound capacities are read together before blocked elimination. An incidence-count
+filter reduces candidates before compaction, blocked deduplication and blocked
+facet-rank evaluation; no geometry is transferred to the CPU.
 Final facet filtering is retained because redundant rows can change negative
 margin penalties. Square, parallelogram and general-polygon constraints use
 separate buffers, with fixed polygon capacities of 156 and 812 facets.
