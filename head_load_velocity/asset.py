@@ -20,30 +20,18 @@ from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
 from mjlab.entity import EntityCfg
 from mjlab.utils.spec_config import CollisionCfg
 
+from .foot_capsules import FOOT_CAPSULES
 from .torque_speed import TorqueSpeedActuatorCfg, mode_15_curve
 
 URDF_PATH = Path(__file__).parent / "assets" / "g1_29dof_mode_15.urdf"
 MESH_DIR = URDF_PATH.parent / "meshes"
-FOOT_PATTERN = r"^(left|right)_foot[1-7]_collision$"
+FOOT_PATTERN = r"^(left|right)_foot(?:[1-9]|10)_collision$"
 HAND_PATTERN = r"^(left|right)_hand_collision$"
 ARM_PATTERN = r"^(left|right)_(shoulder|elbow|wrist|hand).*_collision$"
 PLATFORM_POS = (0.0, 0.0, 0.38)
 PLATFORM_HALF_SIZE = (0.1, 0.1, 0.01)
 PAYLOAD_SOLREF = (0.01, 1.2)
 FOOT_SOLREF = (0.01, 1.2)
-FOOT_RADIUS = 0.008
-FOOT_AXIS_Z = -0.027409145
-# Left foot (rear x, front x, y), fitted offline to the STL sole envelope.
-# The outer axes are 65 mm long; mirror y and ordering for the right foot.
-FOOT_AXES = (
-  (0.040, 0.105, -0.029741791),
-  (-0.045014, 0.125422, -0.0198),
-  (-0.055192, 0.132756, -0.0099),
-  (-0.057841369, 0.134365351, 0.000049556),
-  (-0.055195, 0.132783, 0.0100),
-  (-0.044990, 0.125422, 0.0199),
-  (0.040, 0.105, 0.029840903),
-)
 ARMATURE_5010 = 0.0021812
 WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_wrist_.*",),
@@ -97,14 +85,16 @@ def get_spec() -> mujoco.MjSpec:
     for i in range(1, 5):
       spec.delete(spec.geom(f"{side}_foot{i}_collision"))
     body = spec.body(f"{side}_ankle_roll_link")
-    axes = FOOT_AXES if side == "left" else FOOT_AXES[::-1]
-    for i, (rear, front, y) in enumerate(axes, 1):
-      y = y if side == "left" else -y
+    for i, (radius, endpoints) in enumerate(FOOT_CAPSULES, 1):
+      points = list(endpoints)
+      if side == "right":
+        points[1] *= -1
+        points[4] *= -1
       body.add_geom(
         name=f"{side}_foot{i}_collision",
         type=mujoco.mjtGeom.mjGEOM_CAPSULE,
-        size=(FOOT_RADIUS, 0.0, 0.0),
-        fromto=(rear, y, FOOT_AXIS_Z, front, y, FOOT_AXIS_Z),
+        size=(radius, 0.0, 0.0),
+        fromto=points,
         mass=0.0,
         group=3,
       )

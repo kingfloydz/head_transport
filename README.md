@@ -82,3 +82,20 @@ After installation, run the mathematical regression checks with:
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+### Foot contact reward
+
+Each foot uses ten STL-fitted capsules (rear/front rows of five). The task
+replaces `soft_landing` with `soft_foot_contact` at weight **-0.02**:
+`cost = (max_over_20_capsules(abs(net_force_world_z)) / 100 N)^2`.
+Each geom sums its ground contacts before the global maximum is taken.
+The penalty is active every control step, including zero-command standing.
+On horizontal ground the vertical force magnitude is the capsule normal load.
+The reward manager applies its usual timestep scaling; at dt=0.02 s,
+the contribution is `-0.0004 * (Fmax / 100 N)^2`.
+
+Local CPU replay of model_17700 (stage 1, 8 environments, 1500 steps per seed)
+measured mean costs 3.7140 and 3.2618 for seeds 42/43 before the final
+user-selected weight. At -0.02 these imply approximately -0.00149/-0.00130
+per step. These measurements used the local task configuration, not all
+subsequent remote changes or higher payload stages.

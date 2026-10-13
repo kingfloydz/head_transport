@@ -21,7 +21,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.spec_config import CollisionCfg
 
-from .asset import FOOT_SOLREF, get_head_load_robot_cfg, get_payload_cfg
+from .asset import FOOT_PATTERN, FOOT_SOLREF, get_head_load_robot_cfg, get_payload_cfg
 from .curriculum import REWARD_WEIGHTS, PayloadCurriculum
 from .events import reset_payload
 from .mdp import (
@@ -31,6 +31,7 @@ from .mdp import (
   moving_reward,
   payload_lost_contact,
   payload_state,
+  soft_foot_contact,
   track_linear_velocity,
   track_yaw_velocity,
 )
@@ -54,6 +55,7 @@ def head_load_velocity_env_cfg(
   play: bool = False, payload_stage: int = 1
 ) -> HeadLoadEnvCfg:
   cfg = unitree_g1_flat_env_cfg(play=play)
+  cfg.sim.njmax = 600  # Capacity for ten sole capsules per foot.
   cfg.scene.entities["robot"] = get_head_load_robot_cfg()
   cfg.scene.entities["payload"] = get_payload_cfg()
   terrain = cast(TerrainEntityCfg, cfg.scene.terrain)
@@ -84,6 +86,13 @@ def head_load_velocity_env_cfg(
   cfg.observations["actor"].history_length = HISTORY_LENGTH + 1
   cfg.observations["actor"].flatten_history_dim = False
   cfg.scene.sensors += (
+    ContactSensorCfg(
+      name="foot_capsule_contact",
+      primary=ContactMatch(mode="geom", pattern=FOOT_PATTERN, entity="robot"),
+      secondary=ContactMatch(mode="body", pattern="terrain"),
+      fields=("force",),
+      reduce="netforce",
+    ),
     ContactSensorCfg(
       name="stability_contact_points",
       primary=ContactMatch(mode="geom", pattern="payload_collision", entity="payload"),
@@ -147,9 +156,14 @@ def head_load_velocity_env_cfg(
     "air_time",
     "foot_swing_height",
     "foot_slip",
-    "soft_landing",
   ):
     cfg.rewards[name].params["command_threshold"] = -1.0
+  del cfg.rewards["soft_landing"]
+  cfg.rewards["soft_foot_contact"] = RewardTermCfg(
+    func=soft_foot_contact,
+    weight=-0.02,
+    params={"sensor_name": "foot_capsule_contact", "force_scale": 100.0},
+  )
   cfg.rewards["foot_swing_height"].func = DeadzoneSwingHeight
   cfg.rewards["pose"].func = DeadzonePosture
   cfg.rewards["pose"].weight = 1.5

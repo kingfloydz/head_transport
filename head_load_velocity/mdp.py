@@ -148,3 +148,18 @@ def payload_state(
     ),
     dim=-1,
   )
+
+
+def soft_foot_contact(
+  env: ManagerBasedRlEnv, sensor_name: str, force_scale: float = 100.0
+) -> torch.Tensor:
+  """Squared largest capsule normal load, every control step, flat ground only.
+
+  Netforce is summed per geom in world coordinates. Its vertical magnitude is
+  the summed normal load on a horizontal plane, independent of wrench sign.
+  """
+  sensor = cast(ContactSensor, env.scene[sensor_name])
+  force = cast(torch.Tensor, sensor.data.force)
+  maximum = force[..., 2].abs().amax(dim=1)
+  env.extras["log"]["Metrics/max_foot_capsule_normal_force"] = maximum.mean()
+  return (maximum / force_scale).square()
