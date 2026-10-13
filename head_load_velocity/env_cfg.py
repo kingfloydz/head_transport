@@ -166,6 +166,10 @@ def head_load_velocity_env_cfg(
   )
   cfg.rewards["foot_swing_height"].func = DeadzoneSwingHeight
   cfg.rewards["pose"].func = DeadzonePosture
+  cfg.rewards["pose"].params["std_standing"] = {
+    r".*ankle_(pitch|roll).*": 0.04,
+    r"(?!.*ankle_(pitch|roll)).*": 0.05,
+  }
   cfg.rewards["pose"].weight = 1.5
   cfg.rewards["foot_distance"] = RewardTermCfg(
     func=foot_distance_penalty,
