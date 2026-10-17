@@ -4,12 +4,10 @@ from functools import lru_cache
 
 import torch
 
-STAGE_LIMITS = (
-  (0.5, 0.5, 0.5, 0.5, 0.5),
-  (1.0, 1.0, 1.0, 1.0, 1.0),
-  (1.5, 1.5, 2.0, 2.0, 1.5),
-  (2.5, 2.5, 5.0, 5.0, 2.0),
-)
+from .stability_math import square_constraints, static_margin_accepts
+
+STATIC_MARGIN_MIN = (3.0, 2.5, 1.8, 1.0)
+MASS_RATIO_MAX = (0.5, 1.0, 1.5, 2.0)
 
 
 @lru_cache
@@ -33,27 +31,19 @@ def mass_properties(size, mass, weights, centers):
   return mean * half, inertia
 
 
-def difficulty(size, mass, com, inertia, robot_mass):
-  support = torch.minimum(size[:, :2] / 2 - com[:, :2].abs(), size.new_tensor(0.10))
-  height = size[:, 2] / 2 + com[:, 2]
-  inertia_q = inertia / mass[:, None, None] + torch.diag_embed(
-    height[:, None].square() * size.new_tensor([1, 1, 0])
-  )
-  kappa = height[:, None] / support
-  chi = inertia_q[:, :, [1, 0]].norm(dim=1) / (0.20 * support)
-  return torch.cat((kappa, chi, (mass / robot_mass)[:, None]), dim=-1)
-
-
-def sample_payload(robot_mass: torch.Tensor, stage: int):
+def sample_payload(robot_mass: torch.Tensor, stage: int, mu, tray_half,
+                   a_scale, alpha_scale, batch_size):
   """Joint rejection sampling; no clipping, retry cap, or fallback distribution."""
   n, device = len(robot_mass), robot_mass.device
   centers = block_centers(str(device))
-  limits = robot_mass.new_tensor(STAGE_LIMITS[stage])
+  minimum, eta_max = STATIC_MARGIN_MIN[stage], MASS_RATIO_MAX[stage]
+  half = torch.tensor(tray_half, device=device, dtype=torch.float64)
+  square = torch.as_tensor(square_constraints(tray_half[0]), device=device)
   size = torch.empty(n, 3, device=device)
   mass = torch.empty(n, device=device)
   com = torch.empty_like(size)
   inertia = torch.empty(n, 3, 3, device=device)
-  metrics = torch.empty(n, 5, device=device)
+  offset = torch.empty(n, 2, device=device)
   pending = torch.arange(n, device=device)
   while pending.numel():
     count = len(pending)
@@ -63,29 +53,34 @@ def sample_payload(robot_mass: torch.Tensor, stage: int):
     )
     candidate_size = torch.cat((xy, height), -1)
     minimum_eta = 1 / robot_mass[pending]
-    eta = minimum_eta + (limits[4] - minimum_eta) * torch.rand(count, device=device)
+    eta = minimum_eta + (eta_max - minimum_eta) * torch.rand(count, device=device)
     candidate_mass = eta * robot_mass[pending]
+    # Reject density before generating the 1000-block mass distribution.
+    density = candidate_mass / candidate_size.prod(-1)
+    eligible = ((density >= 40) & (density <= 4000)).nonzero().flatten()
+    if not len(eligible):
+      continue
+    candidate_size, candidate_mass = candidate_size[eligible], candidate_mass[eligible]
+    count = len(eligible)
     bias = -2 + 4 * torch.rand(count, 3, device=device)
     weights = torch.rand(count, 1000, device=device) * torch.exp(bias @ centers.T)
     weights /= weights.sum(-1, keepdim=True)
     candidate_com, candidate_inertia = mass_properties(
       candidate_size, candidate_mass, weights, centers
     )
-    candidate_metrics = difficulty(
-      candidate_size,
-      candidate_mass,
-      candidate_com,
-      candidate_inertia,
-      robot_mass[pending],
-    )
-    # Engineering prior on average density; individual blocks are unrestricted.
-    density = candidate_mass / candidate_size.prod(-1)
-    accepted = (
-      (density >= 40) & (density <= 4000) & (candidate_metrics <= limits).all(-1)
-    )
-    ids = pending[accepted]
+    candidate_offset = torch.empty(count, 2, device=device).uniform_(-0.03, 0.03)
+    accepted = torch.zeros(count, device=device, dtype=torch.bool)
+    for group in torch.arange(count, device=device).split(batch_size):
+      accepted[group] = static_margin_accepts(
+        candidate_size[group], candidate_mass[group], candidate_com[group],
+        candidate_inertia[group], candidate_offset[group], mu[pending[eligible[group]]],
+        square, half, minimum, a_scale, alpha_scale,
+      )
+    ids = pending[eligible[accepted]]
     size[ids], mass[ids] = candidate_size[accepted], candidate_mass[accepted]
     com[ids], inertia[ids] = candidate_com[accepted], candidate_inertia[accepted]
-    metrics[ids] = candidate_metrics[accepted]
-    pending = pending[~accepted]
-  return size, mass, com, inertia, metrics
+    offset[ids] = candidate_offset[accepted]
+    remaining = torch.ones(len(pending), device=device, dtype=torch.bool)
+    remaining[eligible[accepted]] = False
+    pending = pending[remaining]
+  return size, mass, com, inertia, offset

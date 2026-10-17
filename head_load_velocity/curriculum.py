@@ -12,7 +12,7 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.managers.curriculum_manager import CurriculumManager, CurriculumTermCfg
 from mjlab.rl.runner import MjlabOnPolicyRunner
 
-from .load_distribution import STAGE_LIMITS
+from .load_distribution import MASS_RATIO_MAX
 
 REWARD_WEIGHTS = {
   "action_rate_l2": (-0.05, -0.08, -0.12, -0.16),
@@ -45,7 +45,7 @@ class PayloadCurriculum:
     self.window[0] += lengths[eligible].sum() * env.step_dt
     self.window[1] += eligible.sum()
     self.episode_stage[env_ids] = self.stage
-    return {"stage": self.stage + 1, "eta_max": STAGE_LIMITS[self.stage][4]}
+    return {"stage": self.stage + 1, "eta_max": MASS_RATIO_MAX[self.stage]}
 
   def log_iteration(self, log: Callable, logger: Logger, *args, **kwargs):
     self.iterations += 1
@@ -54,7 +54,7 @@ class PayloadCurriculum:
       if logger.gpu_world_size > 1:
         all_reduce(totals)
       if totals[1] > 0 and totals[0] / totals[1] > 19:
-        self.stage = min(self.stage + 1, len(STAGE_LIMITS) - 1)
+        self.stage = min(self.stage + 1, len(MASS_RATIO_MAX) - 1)
         self.update_reward_weights()
       self.window.zero_()
     log(*args, **kwargs)

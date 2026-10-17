@@ -16,7 +16,7 @@ from mjlab.utils.lab_api.math import quat_apply, quat_from_matrix, yaw_quat
 
 from .asset import PLATFORM_HALF_SIZE
 from .load_distribution import sample_payload
-from .stability import StabilitySensor
+from .stability import StabilitySensor, StabilitySensorCfg
 
 
 @requires_model_fields(
@@ -41,9 +41,17 @@ def reset_payload(
   robot, payload = env.scene[platform_cfg.name], env.scene[asset_cfg.name]
   model = env.sim.model
   robot_mass = model.body_mass[env_ids][:, robot.indexing.body_ids].sum(-1)
-  size, mass, com, inertia, _ = sample_payload(robot_mass, stage)
   body = payload.indexing.root_body_id
   geom = payload.indexing.geom_ids[asset_cfg.geom_ids][0]
+  stability = cast(StabilitySensor, env.scene["payload_stability"])
+  cfg = cast(StabilitySensorCfg, stability.cfg)
+  # Both surfaces share sliding friction, so either priority selects this value.
+  mu = model.geom_friction[env_ids, stability.platform_geom, 0]
+  model.geom_friction[env_ids, geom, 0] = mu
+  size, mass, com, inertia, placement = sample_payload(
+    robot_mass, stage, mu, PLATFORM_HALF_SIZE[:2], cfg.acceleration_scale,
+    cfg.angular_acceleration_scale, cfg.geometry_batch_size,
+  )
   principal, axes = _eigh_3x3_jacobi(inertia)
   axes[:, :, 2] *= torch.linalg.det(axes).sign()[:, None]
   model.geom_size[env_ids, geom] = size / 2
@@ -62,14 +70,9 @@ def reset_payload(
   top_offset[:, 2] = PLATFORM_HALF_SIZE[2] - 1e-4
   position = position + quat_apply(rotation, top_offset)
   rotation = yaw_quat(rotation)
-  stability = cast(StabilitySensor, env.scene["payload_stability"])
   stability.contact_points = env.scene["stability_contact_points"]
-  # Equal geom priorities use max friction: synchronize the two sliding values.
-  model.geom_friction[env_ids, geom, 0] = model.geom_friction[
-    env_ids, stability.platform_geom, 0
-  ]
   offset = -com
-  offset[:, :2] += torch.empty_like(com[:, :2]).uniform_(-0.03, 0.03)
+  offset[:, :2] += placement
   offset[:, 2] = size[:, 2] / 2
   stability.set_payload(env_ids)
   position += quat_apply(rotation, offset)

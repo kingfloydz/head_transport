@@ -75,6 +75,24 @@ Zero, one, two or collinear points have zero area. This support-area criterion
 replaces corner-height detection; it does not identify every possible tilt.
 The hull area is computed in batched Torch. Evaluation uses float64.
 
+The four payload curriculum stages require static acceleration margins of
+`3.0, 2.5, 1.8, 1.0`, respectively, and retain payload/robot mass-ratio ceilings
+of `0.5, 1.0, 1.5, 2.0`. Static margins use a horizontal tray and aligned payload
+reference pose, the actual randomized sliding friction, full COM inertia, and
+the sampled COM placement offset within +/-3 cm. Linear and angular acceleration
+scales are shared with the dynamic stability reward; zero reference motion does
+not remove angular acceleration robustness. The reference gravity is 9.81 m/s².
+Mass remains at least 1 kg and average density remains within 40–4000 kg/m³.
+
+Friction stays fixed throughout each reset's rejection sampling. Density is
+screened before generating block mass properties, and four friction facets give
+an inexpensive margin upper bound before full contact constraints are built.
+Full tray coverage uses the 26 analytic facets; partial coverage uses the existing
+batched GPU polygon constraints for the actual reference rectangle intersection.
+The accepted placement offset is reused when placing the payload. Sampling has
+no retry cap, parameter clipping, or fallback distribution. Curriculum promotion
+and stage-dependent reward weights are unchanged.
+
 Payload reset applies a `-0.1 mm` translation along the tray normal to reduce
 contact-establishment transients. This does not alter the soft-contact parameters.
 

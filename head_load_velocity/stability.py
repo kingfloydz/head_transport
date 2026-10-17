@@ -5,11 +5,9 @@ is not a guarantee of planar face contact or of MuJoCo contact feasibility.
 """
 
 from dataclasses import dataclass
-from itertools import product
 from typing import cast
 
 import mujoco
-import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -26,39 +24,7 @@ from .contact_geometry import (
   polygon_constraints,
 )
 
-
-def square_constraints(half_size: float) -> np.ndarray:
-  """The 26 facets for a centered square and unit diamond friction."""
-  rows = []
-  for s, t in product((-1, 1), repeat=2):
-    rows.append([s, t, -1, 0, 0, 0])
-    rows.append([s, 0, -1, t / 2, 0, s * t / 2])
-    rows.append([0, s, -1, 0, t / 2, s * t / 2])
-    for z in (-1, 1):
-      rows.append([s / 2, t / 2, -1, s * z / 2, t * z / 2, z / 2])
-  for axis in range(3):
-    for sign in (-1, 1):
-      row = [0, 0, -1, 0, 0, 0]
-      row[3 + axis] = sign
-      rows.append(row)
-  H = np.array(rows, dtype=np.float64)
-  H[:, 3:] /= half_size
-  return H
-
-
-def margin_denominator(H, c, J, a_scale, alpha_scale):
-  hf, ht = H[..., :3], H[..., 3:]
-  v = hf - torch.linalg.cross(c[:, None], ht)
-  r = (J[:, None] @ ht[..., None]).squeeze(-1) + torch.linalg.cross(c[:, None], v)
-  return torch.sqrt(
-    a_scale**2 * v.square().sum(-1) + alpha_scale**2 * r.square().sum(-1)
-  )
-
-
-def evaluate_margin(H, valid, c, J, w, a_scale, alpha_scale):
-  kappa = margin_denominator(H, c, J, a_scale, alpha_scale)
-  scores = -(H * w[:, None]).sum(-1) / torch.where(valid, kappa, 1)
-  return scores.masked_fill(~valid, float("inf")).amin(-1)
+from .stability_math import evaluate_margin, square_constraints
 
 
 @dataclass
