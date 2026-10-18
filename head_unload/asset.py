@@ -21,7 +21,7 @@ TABLE_DEPTH = 1.0
 TABLE_WIDTH = 1.2
 TARGET_INSET = 0.35
 FRICTION = (0.6, 0.005, 0.0001)
-CAMERA_POS = (0.10, 0.0, 0.30)
+CAMERA_POS = (0.09, 0.0, 0.27)
 # MuJoCo camera looks down local -Z, with local +Y pointing up.
 _angle = math.radians(22)
 CAMERA_XYAXES = (0, -1, 0, math.sin(_angle), 0, math.cos(_angle))
