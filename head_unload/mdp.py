@@ -158,9 +158,9 @@ def terminal_reward(env, name):
 
 
 def control_cost(env):
-  action_rate = (env.action_manager.action - env.action_manager.prev_action).square().mean(-1)
+  action_rate = (env.action_manager.action - env.action_manager.prev_action).square().sum(-1)
   torque = (env.scene["robot"].data.actuator_force / env.unload.effort_limits).square().mean(-1)
-  return env.step_dt * (0.1 * action_rate + 0.05 * torque + 0.05)
+  return env.step_dt * (0.1 * action_rate + 0.05 * torque)
 
 
 def joint_limit_cost(env):

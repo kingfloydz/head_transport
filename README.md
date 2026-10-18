@@ -79,19 +79,22 @@ cube center height 1.15 m. Let `D` be the cube-center distance to this goal:
 r = 5 * (D_previous - D_current)
     + 20 * success - 10 * failure
     + dt * 0.3 * exp(-mean(((q - q_default) / std)^2))
-    - dt * (0.1 * mean((a - a_previous)^2)
-            + 0.05 * mean((torque / effort_limit)^2) + 0.05)
+    - dt * (0.1 * sum((a - a_previous)^2)
+            + 0.05 * mean((torque / effort_limit)^2))
     - dt * (sum_joint_soft_limit_violation + self_collision + robot_tabletop_contact)
 ```
 
 Reward-manager timestep scaling is disabled: progress and terminal rewards are
-per-step/event values. Running pose rewards and control/time costs are multiplied
+per-step/event values. Running pose rewards and control costs are multiplied
 by dt, matching the walking task's reward-rate convention. Pose uses all 29 joints
 and the official G1 exponential pose formula, with a fixed std of 0.15 rad for
 every joint. Its weight is 0.3 and it is active throughout the episode. Unlike
 the official command-dependent tolerances, this unloading task uses the same
 0.15 rad tolerance throughout. Joint-limit and self-collision
 weights are both -1.0, matching the official G1 walking configuration.
+Action smoothing uses the official sum of squared raw action differences with
+weight -0.1. The additional torque cost uses mean squared effort-limit-normalized
+torques with weight -0.05. There is no constant time penalty.
 
 Success requires all three conditions continuously for **more than 5 seconds**
 (251 control steps at 50 Hz):
