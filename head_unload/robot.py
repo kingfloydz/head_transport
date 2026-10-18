@@ -39,6 +39,10 @@ WRIST_ACTUATOR = BuiltinPositionActuatorCfg(
 
 def get_spec() -> mujoco.MjSpec:
   root = ET.parse(URDF_PATH).getroot()
+  # Remove head geometry while retaining its mass and inertia.
+  head = cast(ET.Element, root.find("link[@name='head_link']"))
+  for element in head.findall("visual") + head.findall("collision"):
+    head.remove(element)
   compiler = cast(ET.Element, root.find("mujoco/compiler"))
   compiler.set("meshdir", MESH_DIR.as_posix())
   compiler.set("strippath", "true")

@@ -31,6 +31,8 @@ dimensions: they are not directly resumable as unloading checkpoints.
 
 ## Scene
 
+- Head visual and collision geometry are removed; its 1.036 kg mass and inertia
+  are retained. The head platform and depth camera remain attached to the torso.
 - Uniform 6 kg cube, side 0.3 m, centered on the platform at reset. Its principal
   inertias are 0.09 kg m². Initial joint/root/payload velocities are zero.
 - Fixed 1 m-high tabletop, 1.2 m wide and 1 m deep, 5 cm thick, with four legs.
