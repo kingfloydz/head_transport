@@ -1,7 +1,5 @@
 """One-stage visual unloading: reset, observations, success, and rewards."""
 
-import math
-
 import mujoco_warp as mjwarp
 import torch
 import warp as wp
@@ -29,7 +27,6 @@ class ResetScene:
     env.unload = self
     robot = env.scene["robot"]
     self.platform = robot.find_sites("head_platform")[0][0]
-    self.torso = robot.find_bodies("torso_link")[0][0]
     self.pose_std = torch.full_like(robot.data.default_joint_pos[0], 0.05)
     self.pose_std[robot.find_joints(".*ankle_(pitch|roll).*")[0]] = 0.04
     self.hold_steps = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
@@ -104,7 +101,7 @@ def privileged_state(env):
   table_direction = torch.zeros_like(edge)
   table_direction[:, 1] = 1
   contacts = torch.cat((*(contact(env, n).any(-1, keepdim=True).float() for n in (
-    "box_platform", "box_table", "box_ground", "box_robot", "body_ground", "robot_table",
+    "box_platform", "box_table", "box_ground", "box_robot", "body_ground", "robot_table", "self_collision",
   )), contact(env, "feet_ground").float()), -1)
   supports = torch.cat(tuple(
     env.scene[n].data.force[:, :, 2].abs() / (BOX_MASS * 9.81)
@@ -124,27 +121,7 @@ def privileged_state(env):
 
 
 def failure(env):
-  r, b = (env.scene[n].data for n in ("robot", "payload"))
-  origin = env.scene.env_origins
-  return (
-    (r.root_link_pos_w[:, 2] - origin[:, 2] < 0.25)
-    | contact(env, "body_ground").any(-1)
-    | contact(env, "box_ground").any(-1)
-    | ((b.root_link_pos_w[:, :2] - origin[:, :2]).norm(dim=-1) > 4.0)
-    | ((r.root_link_pos_w[:, :2] - origin[:, :2]).norm(dim=-1) > 4.0)
-  )
-
-
-def standing(env):
-  r = env.scene["robot"].data
-  torso_up = matrix_from_quat(r.body_link_quat_w[:, env.unload.torso])[:, 2, 2]
-  return (
-    contact(env, "feet_ground").all(-1)
-    & (r.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2] >= 0.65)
-    & (torso_up >= math.cos(math.radians(20)))
-    & ~contact(env, "robot_table").any(-1)
-    & ~failure(env)
-  )
+  return contact(env, "body_ground").any(-1) | contact(env, "box_ground").any(-1)
 
 
 def success(env):
@@ -152,17 +129,17 @@ def success(env):
   # Oriented cube's projected half-extents; accept any final face.
   half_extent = BOX_HALF * matrix_from_quat(b.root_link_quat_w).abs().sum(-1)
   offset = (b.root_link_pos_w - table.root_link_pos_w).abs()
-  inside = ((offset[:, 0] + half_extent[:, 0] < TABLE_DEPTH / 2 - 0.02)
-            & (offset[:, 1] + half_extent[:, 1] < TABLE_WIDTH / 2 - 0.02))
+  inside = ((offset[:, 0] + half_extent[:, 0] <= TABLE_DEPTH / 2)
+            & (offset[:, 1] + half_extent[:, 1] <= TABLE_WIDTH / 2))
   stable = (
-    inside & (env.scene["box_table"].data.force[:, :, 2].abs().sum(-1) > BOX_MASS * 9.81 * 0.8)
+    inside & contact(env, "box_table").any(-1)
     & ~contact(env, "box_robot").any(-1)
     & (b.root_link_lin_vel_w.norm(dim=-1) < 0.03)
     & (b.root_link_ang_vel_w.norm(dim=-1) < 0.1)
-    & standing(env)
+    & ~env.termination_manager.get_term("failure")
   )
   env.unload.hold_steps[:] = torch.where(stable, env.unload.hold_steps + 1, 0)
-  return env.unload.hold_steps >= math.ceil(5.0 / env.step_dt)
+  return env.unload.hold_steps > 5.0 / env.step_dt
 
 
 def pose(env):
@@ -186,3 +163,15 @@ def control_cost(env):
   action_rate = (env.action_manager.action - env.action_manager.prev_action).square().mean(-1)
   torque = (env.scene["robot"].data.actuator_force / env.unload.effort_limits).square().mean(-1)
   return env.step_dt * (0.1 * action_rate + 0.05 * torque + 0.05)
+
+
+def joint_limit_cost(env):
+  r = env.scene["robot"].data
+  limits = r.soft_joint_pos_limits
+  violation = (limits[..., 0] - r.joint_pos).clamp(min=0)
+  violation += (r.joint_pos - limits[..., 1]).clamp(min=0)
+  return env.step_dt * violation.sum(-1)
+
+
+def collision_cost(env, sensor_name):
+  return env.step_dt * contact(env, sensor_name).any(-1).float()

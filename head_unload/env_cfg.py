@@ -30,7 +30,7 @@ def unload_env_cfg(play=False):
   box = ContactMatch(mode="geom", pattern="box_collision", entity="payload")
   whole_robot = ContactMatch(mode="subtree", pattern="pelvis", entity="robot")
   ground = ContactMatch(mode="body", pattern="terrain")
-  whole_table = ContactMatch(mode="subtree", pattern="table", entity="table")
+  tabletop = ContactMatch(mode="geom", pattern="top", entity="table")
   return ManagerBasedRlEnvCfg(
     decimation=4,
     episode_length_s=20.0,
@@ -53,14 +53,17 @@ def unload_env_cfg(play=False):
         ),
         contact_sensor("box_platform", box, ContactMatch(
           mode="geom", pattern="head_platform_collision", entity="robot")),
-        contact_sensor("box_table", box, ContactMatch(mode="geom", pattern="top", entity="table")),
+        contact_sensor("box_table", box, tabletop),
         contact_sensor("box_ground", box, ground),
         contact_sensor("box_robot", box, whole_robot),
         contact_sensor("feet_ground", ContactMatch(
           mode="subtree", pattern="(left|right)_ankle_roll_link", entity="robot"), ground),
         contact_sensor("body_ground", ContactMatch(
           mode="geom", pattern=r"(?!(left|right)_foot\d+_collision$).*_collision", entity="robot"), ground),
-        contact_sensor("robot_table", whole_robot, whole_table),
+        contact_sensor("robot_table", ContactMatch(
+          mode="geom", pattern=".*_collision", entity="robot",
+          exclude=("head_platform_collision",)), tabletop),
+        contact_sensor("self_collision", whole_robot, whole_robot),
       ),
     ),
     sim=SimulationCfg(
@@ -84,6 +87,11 @@ def unload_env_cfg(play=False):
       "pose": RewardTermCfg(func=mdp.pose, weight=0.5),
       "success": RewardTermCfg(func=mdp.terminal_reward, params={"name": "success"}, weight=20.0),
       "failure": RewardTermCfg(func=mdp.terminal_reward, params={"name": "failure"}, weight=-10.0),
+      "joint_limits": RewardTermCfg(func=mdp.joint_limit_cost, weight=-1.0),
+      "self_collision": RewardTermCfg(
+        func=mdp.collision_cost, params={"sensor_name": "self_collision"}, weight=-1.0),
+      "robot_table": RewardTermCfg(
+        func=mdp.collision_cost, params={"sensor_name": "robot_table"}, weight=-1.0),
       "control": RewardTermCfg(func=mdp.control_cost, weight=-1.0),
     },
     terminations={

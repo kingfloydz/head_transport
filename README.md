@@ -61,11 +61,11 @@ relative joint positions/velocities, and previous action. Only proprioception
 uses running empirical normalization. Depth is divided by 4 m; invalid pixels
 are zero with a separate mask. There is no recurrence or observation noise.
 
-Critic: MLP 256/256/128. Its 131-D state contains proprioception plus root linear
+Critic: MLP 256/256/128. Its 132-D state contains proprioception plus root linear
 velocity; platform-relative cube position and 6D orientation; cube linear and
 angular velocities expressed in the root frame; root-relative table edge and
 edge direction; box-to-goal vector; contact flags (platform, tabletop, floor,
-robot, non-foot/floor, robot/table, and each foot); the two vertical support
+robot, non-foot/floor, non-platform robot/tabletop, self-collision, and each foot); the two vertical support
 force magnitudes divided by box weight; and the continuous-success timer.
 Fixed mass, size, and friction are not repeated as observations. The critic
 does not encode depth images. All privileged state is excluded from the actor.
@@ -81,6 +81,7 @@ r = 5 * (D_previous - D_current)
     + dt * 0.5 * exp(-mean(((q - q_default) / std)^2))
     - dt * (0.1 * mean((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2) + 0.05)
+    - dt * (sum_joint_soft_limit_violation + self_collision + robot_tabletop_contact)
 ```
 
 Reward-manager timestep scaling is disabled: progress and terminal rewards are
@@ -89,20 +90,28 @@ by dt, matching the walking task's reward-rate convention. Pose uses all 29 join
 and the walking task's standing std: 0.04 rad for ankle pitch/roll, 0.05 rad for
 every other joint. Its weight is 0.5 and it is active throughout the episode.
 
-Box stability and robot standing must hold simultaneously for **5 continuous seconds**: the entire projected cube fits within the tabletop
-with 2 cm margin, the tabletop carries at least 80% of its weight, the cube has
-no robot contact, its linear/angular speeds are below 0.03 m/s and 0.1 rad/s,
-both feet contact the floor, pelvis height is at least 0.65 m above the ground,
-the torso is within 20 degrees of upright, the robot does not contact the table,
-and no failure condition holds. Any interruption resets the success timer.
-These standing thresholds gate success only; they do not constrain the unloading motion. Any final cube face is accepted.
+Success requires all three conditions continuously for **more than 5 seconds**
+(251 control steps at 50 Hz):
 
-Failure: non-foot robot/floor contact, root height below 0.25 m, cube/floor
-contact, or robot/cube horizontal displacement more than 4 m from the origin.
-Timeout is a truncation without the failure penalty. Losing platform contact,
-leaning, stepping, and temporary robot/table contact do not themselves terminate
-the episode. Success and failure terminate immediately after their conditions
-are met, so terminal bonuses are awarded once.
+1. The cube's entire horizontal projection lies within the tabletop boundary,
+   with no extra margin. Any final cube face is accepted.
+2. The cube contacts the tabletop and has no contact with any robot part.
+3. Cube linear speed is below 0.03 m/s and angular speed below 0.1 rad/s.
+
+Any interruption resets the timer. Failure takes precedence over success.
+Failure has only two conditions: non-foot robot/floor contact or cube/floor
+contact. No standing, pelvis-height, torso-angle, support-force or travel-distance
+threshold is imposed. Timeout at 20 s is a truncation without a failure penalty.
+Success and failure terminate immediately, awarding their terminal reward once.
+
+Joint soft-limit violation (summed radians), any robot self-contact, and any
+non-platform robot/tabletop contact each have weight -1 and are scaled by dt.
+Collision penalties are binary per control step, not contact-count penalties.
+The head platform is excluded only from the tabletop penalty; platform self-contact
+and platform/floor contact still count. Table legs are not part of the tabletop
+penalty. Feet contact and box support forces remain useful critic observations.
+Adding the self-contact flag changes the critic input from 131 to 132 dimensions;
+previous unloading checkpoints cannot be resumed unchanged.
 
 Implementation: `head_unload/asset.py`, `env_cfg.py`, `mdp.py`, `networks.py`.
 The reference robot, actuators, meshes, and licenses are included in
@@ -114,8 +123,8 @@ CPU smoke run with mjlab 1.6.0, MuJoCo / MuJoCo-Warp 3.11.0, Warp 1.15.0,
 RSL-RL 5.4.2, and PyTorch 2.13.0: two environments, depth rendering, partial
 reset, one PPO update with CNN gradients, actor/critic input isolation,
 TorchScript export, and checkpoint save/load passed. Camera rays see the table
-without platform/housing occlusion. Controlled-state tests verify the 250-step
-(5 s) success boundary and timer resets for interrupted box stability or standing.
+without platform/housing occlusion. Controlled-state tests verify the 251-step
+(>5 s) success boundary and timer resets for interrupted box conditions.
 In the physical table-support fixture, the untrained zero-action robot loses
 balance and correctly fails instead of succeeding; cube/floor contact also fails.
 This verifies the implementation, not a learned unloading policy. GPU training,
