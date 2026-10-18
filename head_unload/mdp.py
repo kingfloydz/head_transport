@@ -1,5 +1,7 @@
 """One-stage visual unloading: reset, observations, success, and rewards."""
 
+import math
+
 import mujoco_warp as mjwarp
 import torch
 import warp as wp
@@ -27,6 +29,9 @@ class ResetScene:
     env.unload = self
     robot = env.scene["robot"]
     self.platform = robot.find_sites("head_platform")[0][0]
+    self.torso = robot.find_bodies("torso_link")[0][0]
+    self.pose_std = torch.full_like(robot.data.default_joint_pos[0], 0.05)
+    self.pose_std[robot.find_joints(".*ankle_(pitch|roll).*")[0]] = 0.04
     self.hold_steps = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
     self.previous_distance = torch.zeros(env.num_envs, device=env.device)
     self.effort_limits = torch.tensor(
@@ -130,6 +135,18 @@ def failure(env):
   )
 
 
+def standing(env):
+  r = env.scene["robot"].data
+  torso_up = matrix_from_quat(r.body_link_quat_w[:, env.unload.torso])[:, 2, 2]
+  return (
+    contact(env, "feet_ground").all(-1)
+    & (r.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2] >= 0.65)
+    & (torso_up >= math.cos(math.radians(20)))
+    & ~contact(env, "robot_table").any(-1)
+    & ~failure(env)
+  )
+
+
 def success(env):
   b, table = (env.scene[n].data for n in ("payload", "table"))
   # Oriented cube's projected half-extents; accept any final face.
@@ -142,12 +159,16 @@ def success(env):
     & ~contact(env, "box_robot").any(-1)
     & (b.root_link_lin_vel_w.norm(dim=-1) < 0.03)
     & (b.root_link_ang_vel_w.norm(dim=-1) < 0.1)
-    & contact(env, "feet_ground").any(-1)
-    & ~contact(env, "robot_table").any(-1)
-    & ~failure(env)
+    & standing(env)
   )
   env.unload.hold_steps[:] = torch.where(stable, env.unload.hold_steps + 1, 0)
-  return env.unload.hold_steps * env.step_dt >= 1.0
+  return env.unload.hold_steps >= math.ceil(5.0 / env.step_dt)
+
+
+def pose(env):
+  r = env.scene["robot"].data
+  error = (r.joint_pos - r.default_joint_pos) / env.unload.pose_std
+  return env.step_dt * torch.exp(-error.square().mean(-1))
 
 
 def progress(env):

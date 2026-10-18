@@ -44,7 +44,7 @@ dimensions: they are not directly resumable as unloading checkpoints.
 - Camera optical center: torso-relative `(0.08, 0, 0.30)` m, 2 cm behind the platform
   front edge in X, looking forward and 20° down. Vertical FOV 60°, depth 96×64, valid range 0.1–4 m.
   The camera housing has collision geometry and 0.1 kg mass.
-- Physics 200 Hz, actions and depth 50 Hz; episode limit 15 s.
+- Physics 200 Hz, actions and depth 50 Hz; episode limit 20 s.
 - Box, platform, robot, table, and floor can collide. Hands may assist; there is
   no requirement to slide rather than tip, and no prescribed final cube face.
 
@@ -78,18 +78,24 @@ cube center height 1.15 m. Let `D` be the cube-center distance to this goal:
 ```
 r = 5 * (D_previous - D_current)
     + 20 * success - 10 * failure
+    + dt * 0.5 * exp(-mean(((q - q_default) / std)^2))
     - dt * (0.1 * mean((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2) + 0.05)
 ```
 
 Reward-manager timestep scaling is disabled: progress and terminal rewards are
-per-step/event values, and only running control/time costs are multiplied by dt.
+per-step/event values. Running pose rewards and control/time costs are multiplied
+by dt, matching the walking task's reward-rate convention. Pose uses all 29 joints
+and the walking task's standing std: 0.04 rad for ankle pitch/roll, 0.05 rad for
+every other joint. Its weight is 0.5 and it is active throughout the episode.
 
-Success must hold for 1 s: the entire projected cube fits within the tabletop
+Box stability and robot standing must hold simultaneously for **5 continuous seconds**: the entire projected cube fits within the tabletop
 with 2 cm margin, the tabletop carries at least 80% of its weight, the cube has
 no robot contact, its linear/angular speeds are below 0.03 m/s and 0.1 rad/s,
-at least one foot contacts the floor, the robot does not contact the table, and
-no failure condition holds. Any final cube face is accepted.
+both feet contact the floor, pelvis height is at least 0.65 m above the ground,
+the torso is within 20 degrees of upright, the robot does not contact the table,
+and no failure condition holds. Any interruption resets the success timer.
+These standing thresholds gate success only; they do not constrain the unloading motion. Any final cube face is accepted.
 
 Failure: non-foot robot/floor contact, root height below 0.25 m, cube/floor
 contact, or robot/cube horizontal displacement more than 4 m from the origin.
@@ -108,7 +114,9 @@ CPU smoke run with mjlab 1.6.0, MuJoCo / MuJoCo-Warp 3.11.0, Warp 1.15.0,
 RSL-RL 5.4.2, and PyTorch 2.13.0: two environments, depth rendering, partial
 reset, one PPO update with CNN gradients, actor/critic input isolation,
 TorchScript export, and checkpoint save/load passed. Camera rays see the table
-without platform/housing occlusion. A physical table-support fixture triggers
-success after one stable second; cube/floor contact triggers failure.
+without platform/housing occlusion. Controlled-state tests verify the 250-step
+(5 s) success boundary and timer resets for interrupted box stability or standing.
+In the physical table-support fixture, the untrained zero-action robot loses
+balance and correctly fails instead of succeeding; cube/floor contact also fails.
 This verifies the implementation, not a learned unloading policy. GPU training,
 convergence, and hardware deployment have not been evaluated.

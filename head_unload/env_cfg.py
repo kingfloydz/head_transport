@@ -33,7 +33,7 @@ def unload_env_cfg(play=False):
   whole_table = ContactMatch(mode="subtree", pattern="table", entity="table")
   return ManagerBasedRlEnvCfg(
     decimation=4,
-    episode_length_s=15.0,
+    episode_length_s=20.0,
     scale_rewards_by_dt=False,
     scene=SceneCfg(
       num_envs=1 if play else 256,
@@ -81,6 +81,7 @@ def unload_env_cfg(play=False):
     events={"reset": EventTermCfg(func=mdp.ResetScene, mode="reset")},
     rewards={
       "progress": RewardTermCfg(func=mdp.progress, weight=5.0),
+      "pose": RewardTermCfg(func=mdp.pose, weight=0.5),
       "success": RewardTermCfg(func=mdp.terminal_reward, params={"name": "success"}, weight=20.0),
       "failure": RewardTermCfg(func=mdp.terminal_reward, params={"name": "failure"}, weight=-10.0),
       "control": RewardTermCfg(func=mdp.control_cost, weight=-1.0),
