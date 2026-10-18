@@ -60,9 +60,7 @@ def unload_env_cfg(play=False):
           mode="subtree", pattern="(left|right)_ankle_roll_link", entity="robot"), ground),
         contact_sensor("body_ground", ContactMatch(
           mode="geom", pattern=r"(?!(left|right)_foot\d+_collision$).*_collision", entity="robot"), ground),
-        contact_sensor("robot_table", ContactMatch(
-          mode="geom", pattern=".*_collision", entity="robot",
-          exclude=("head_platform_collision",)), tabletop),
+        contact_sensor("robot_table", whole_robot, tabletop),
         contact_sensor("self_collision", whole_robot, whole_robot),
       ),
     ),

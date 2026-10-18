@@ -65,7 +65,7 @@ Critic: MLP 256/256/128. Its 132-D state contains proprioception plus root linea
 velocity; platform-relative cube position and 6D orientation; cube linear and
 angular velocities expressed in the root frame; root-relative table edge and
 edge direction; box-to-goal vector; contact flags (platform, tabletop, floor,
-robot, non-foot/floor, non-platform robot/tabletop, self-collision, and each foot); the two vertical support
+robot, non-foot/floor, robot/tabletop (including the platform), self-collision, and each foot); the two vertical support
 force magnitudes divided by box weight; and the continuous-success timer.
 Fixed mass, size, and friction are not repeated as observations. The critic
 does not encode depth images. All privileged state is excluded from the actor.
@@ -108,10 +108,10 @@ threshold is imposed. Timeout at 20 s is a truncation without a failure penalty.
 Success and failure terminate immediately, awarding their terminal reward once.
 
 Joint soft-limit violation (summed radians), any robot self-contact, and any
-non-platform robot/tabletop contact each have weight -1 and are scaled by dt.
+robot/tabletop (including the platform) contact each have weight -1 and are scaled by dt.
 Collision penalties are binary per control step, not contact-count penalties.
-The head platform is excluded only from the tabletop penalty; platform self-contact
-and platform/floor contact still count. Table legs are not part of the tabletop
+The head platform is included in the tabletop penalty; platform self-contact
+and platform/floor contact also count. Table legs are not part of the tabletop
 penalty. Feet contact and box support forces remain useful critic observations.
 Adding the self-contact flag changes the critic input from 131 to 132 dimensions;
 previous unloading checkpoints cannot be resumed unchanged.
