@@ -1,3 +1,9 @@
+## Depth-vision unloading (Unload branch)
+
+See [UNLOAD.md](UNLOAD.md) for the fixed scene, actor/critic observations,
+reward, and training commands. Install this task with `python install_unload.py`
+in an **mjlab 1.6.0** environment.
+
 ```bash
 git clone https://github.com/kingfloydz/head_transport.git
 cd head_transport
