@@ -41,8 +41,8 @@ dimensions: they are not directly resumable as unloading checkpoints.
   The implementation moves the fixed-base table's mocap pose only at reset.
 - Box/platform and box/table sliding friction: **0.6**. Foot/ground sliding
   friction remains fixed at **0.3**. No other domain randomization.
-- Camera optical center: torso-relative `(0.09, 0, 0.27)` m, 1 cm behind the platform
-  front edge in X, looking forward and 22° down. Vertical FOV 60°, depth 96×64, valid range 0.1–4 m.
+- Camera optical center: torso-relative `(0.08, 0, 0.30)` m, 2 cm behind the platform
+  front edge in X, looking forward and 20° down. Vertical FOV 60°, depth 96×64, valid range 0.1–4 m.
   The camera housing has collision geometry and 0.1 kg mass.
 - Physics 200 Hz, actions and depth 50 Hz; episode limit 15 s.
 - Box, platform, robot, table, and floor can collide. Hands may assist; there is
