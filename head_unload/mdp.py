@@ -142,7 +142,7 @@ def success(env):
 
 def pose(env):
   r = env.scene["robot"].data
-  error = (r.joint_pos - r.default_joint_pos) / 0.05
+  error = (r.joint_pos - r.default_joint_pos) / 0.15
   return env.step_dt * torch.exp(-error.square().mean(-1))
 
 

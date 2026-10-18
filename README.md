@@ -87,10 +87,10 @@ r = 5 * (D_previous - D_current)
 Reward-manager timestep scaling is disabled: progress and terminal rewards are
 per-step/event values. Running pose rewards and control/time costs are multiplied
 by dt, matching the walking task's reward-rate convention. Pose uses all 29 joints
-and mjlab 1.6.0 official G1 walking task's standing std: 0.05 rad for every
-joint. Its weight is 0.3 and it is active throughout the episode. The official
-pose switches tolerance using commanded speed; this unloading task has no velocity
-command and uses the standing regime throughout. Joint-limit and self-collision
+and the official G1 exponential pose formula, with a fixed std of 0.15 rad for
+every joint. Its weight is 0.3 and it is active throughout the episode. Unlike
+the official command-dependent tolerances, this unloading task uses the same
+0.15 rad tolerance throughout. Joint-limit and self-collision
 weights are both -1.0, matching the official G1 walking configuration.
 
 Success requires all three conditions continuously for **more than 5 seconds**
