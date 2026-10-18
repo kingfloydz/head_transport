@@ -27,8 +27,6 @@ class ResetScene:
     env.unload = self
     robot = env.scene["robot"]
     self.platform = robot.find_sites("head_platform")[0][0]
-    self.pose_std = torch.full_like(robot.data.default_joint_pos[0], 0.05)
-    self.pose_std[robot.find_joints(".*ankle_(pitch|roll).*")[0]] = 0.04
     self.hold_steps = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
     self.previous_distance = torch.zeros(env.num_envs, device=env.device)
     self.effort_limits = torch.tensor(
@@ -144,7 +142,7 @@ def success(env):
 
 def pose(env):
   r = env.scene["robot"].data
-  error = (r.joint_pos - r.default_joint_pos) / env.unload.pose_std
+  error = (r.joint_pos - r.default_joint_pos) / 0.05
   return env.step_dt * torch.exp(-error.square().mean(-1))
 
 

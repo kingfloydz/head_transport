@@ -78,7 +78,7 @@ cube center height 1.15 m. Let `D` be the cube-center distance to this goal:
 ```
 r = 5 * (D_previous - D_current)
     + 20 * success - 10 * failure
-    + dt * 0.5 * exp(-mean(((q - q_default) / std)^2))
+    + dt * 0.3 * exp(-mean(((q - q_default) / std)^2))
     - dt * (0.1 * mean((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2) + 0.05)
     - dt * (sum_joint_soft_limit_violation + self_collision + robot_tabletop_contact)
@@ -87,8 +87,11 @@ r = 5 * (D_previous - D_current)
 Reward-manager timestep scaling is disabled: progress and terminal rewards are
 per-step/event values. Running pose rewards and control/time costs are multiplied
 by dt, matching the walking task's reward-rate convention. Pose uses all 29 joints
-and the walking task's standing std: 0.04 rad for ankle pitch/roll, 0.05 rad for
-every other joint. Its weight is 0.5 and it is active throughout the episode.
+and mjlab 1.6.0 official G1 walking task's standing std: 0.05 rad for every
+joint. Its weight is 0.3 and it is active throughout the episode. The official
+pose switches tolerance using commanded speed; this unloading task has no velocity
+command and uses the standing regime throughout. Joint-limit and self-collision
+weights are both -1.0, matching the official G1 walking configuration.
 
 Success requires all three conditions continuously for **more than 5 seconds**
 (251 control steps at 50 Hz):
