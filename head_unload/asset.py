@@ -21,9 +21,9 @@ TABLE_DEPTH = 1.0
 TABLE_WIDTH = 1.2
 TARGET_INSET = 0.35
 FRICTION = (0.6, 0.005, 0.0001)
-CAMERA_POS = (0.135, 0.0, 0.35)
+CAMERA_POS = (0.10, 0.0, 0.30)
 # MuJoCo camera looks down local -Z, with local +Y pointing up.
-_angle = math.radians(25)
+_angle = math.radians(22)
 CAMERA_XYAXES = (0, -1, 0, math.sin(_angle), 0, math.cos(_angle))
 
 
@@ -32,7 +32,8 @@ def robot_spec():
   torso = spec.body("torso_link")
   torso.add_geom(
     name="depth_camera_collision", type=mujoco.mjtGeom.mjGEOM_BOX,
-    pos=(0.115, 0.0, 0.35), size=(0.015, 0.035, 0.015),
+    pos=(CAMERA_POS[0] - 0.02, CAMERA_POS[1], CAMERA_POS[2]),
+    size=(0.015, 0.035, 0.015),
     mass=0.1, group=2, rgba=(0.12, 0.12, 0.12, 1),
   )
   camera = torso.add_camera(
