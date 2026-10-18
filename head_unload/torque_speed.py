@@ -11,7 +11,6 @@ from typing import cast
 import mujoco
 import mujoco_warp as mjwarp
 import torch
-
 from mjlab.actuator.actuator import ActuatorCmd
 from mjlab.actuator.pd_actuator import IdealPdActuator, IdealPdActuatorCfg, pd_torque
 from mjlab.entity import Entity, EntityArticulationInfoCfg

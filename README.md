@@ -1,126 +1,112 @@
-## Depth-vision unloading (Unload branch)
+# G1 depth-vision unloading
 
-See [UNLOAD.md](UNLOAD.md) for the fixed scene, actor/critic observations,
-reward, and training commands. Install this task with `python install_unload.py`
-in an **mjlab 1.6.0** environment.
+This task uses **mjlab 1.6.0** and the reference repository's 29-DoF G1,
+head platform, fitted foot capsules, and Unitree torque-speed actuators.
+It trains one PPO policy without stages, a teacher, motion templates,
+fixed-foot constraints, or a payload stability reward.
+
+## Install and run
+
+Use Python 3.10–3.13 and a CUDA-enabled PyTorch installation for GPU training.
+The pinned mjlab package supplies its matching MuJoCo/Warp and RSL-RL dependencies.
 
 ```bash
-git clone https://github.com/kingfloydz/head_transport.git
+git clone --branch Unload https://github.com/kingfloydz/head_transport.git
 cd head_transport
-python3 install.py
+python -m pip install -r requirements-unload.txt
+python install_unload.py
+
+MUJOCO_GL=disable python -m mjlab.scripts.train Mjlab-Unload-Unitree-G1 \
+  --env.scene.num-envs 256 --agent.logger tensorboard
+
+MUJOCO_GL=disable python -m mjlab.scripts.play Mjlab-Unload-Unitree-G1 \
+  --checkpoint-file /path/to/model_1000.pt --num-envs 1 --viewer viser
 ```
 
-```bash
-git fetch origin
-git switch main
-git pull --ff-only
-python3 install.py
+`MUJOCO_GL=disable` disables OpenGL, not the Warp depth renderer.
+The Viser viewer displays the depth camera. The default runner saves PPO
+checkpoints; the actor also implements a two-input ONNX export interface.
+Existing temporal transport checkpoints have different observations and network
+dimensions: they are not directly resumable as unloading checkpoints.
+
+## Scene
+
+- Uniform 6 kg cube, side 0.3 m, centered on the platform at reset. Its principal
+  inertias are 0.09 kg m². Initial joint/root/payload velocities are zero.
+- Fixed 1 m-high tabletop, 1.2 m wide and 1 m deep, 5 cm thick, with four legs.
+- Robot faces +X; tabletop near edge is in front of the robot. No yaw or lateral
+  randomization. Each reset samples **root-to-near-edge distance U(0.3, 1.7) m**.
+  The implementation moves the fixed-base table's mocap pose only at reset.
+- Box/platform and box/table sliding friction: **0.6**. Foot/ground sliding
+  friction remains fixed at **0.3**. No other domain randomization.
+- Camera optical center: torso-relative `(0.135, 0, 0.35)` m, ahead of the platform,
+  looking forward and 25° down. Vertical FOV 60°, depth 96×64, valid range 0.1–4 m.
+  The camera housing has collision geometry and 0.1 kg mass.
+- Physics 200 Hz, actions and depth 50 Hz; episode limit 15 s.
+- Box, platform, robot, table, and floor can collide. Hands may assist; there is
+  no requirement to slide rather than tip, and no prescribed final cube face.
+
+The camera mount/FOV are explicit simulation design values, not a calibration
+of an existing physical camera. The box on top can be outside its field of view;
+the actor does not receive a hidden box pose to compensate for this.
+
+## Networks and observations
+
+Actor: depth plus validity mask `[2,64,96]` → CNN channels 16/32/32 → pooled
+64-D feature. Concatenate with 93-D proprioception → MLP 256/256/128 → 29
+joint-position actions. Proprioception is angular velocity, projected gravity,
+relative joint positions/velocities, and previous action. Only proprioception
+uses running empirical normalization. Depth is divided by 4 m; invalid pixels
+are zero with a separate mask. There is no recurrence or observation noise.
+
+Critic: MLP 256/256/128. Its 131-D state contains proprioception plus root linear
+velocity; platform-relative cube position and 6D orientation; cube linear and
+angular velocities expressed in the root frame; root-relative table edge and
+edge direction; box-to-goal vector; contact flags (platform, tabletop, floor,
+robot, non-foot/floor, robot/table, and each foot); the two vertical support
+force magnitudes divided by box weight; and the continuous-success timer.
+Fixed mass, size, and friction are not repeated as observations. The critic
+does not encode depth images. All privileged state is excluded from the actor.
+
+## Reward and termination
+
+The goal is 0.35 m inside the table's near edge, at its lateral center, with
+cube center height 1.15 m. Let `D` be the cube-center distance to this goal:
+
+```
+r = 5 * (D_previous - D_current)
+    + 20 * success - 10 * failure
+    - dt * (0.1 * mean((a - a_previous)^2)
+            + 0.05 * mean((torque / effort_limit)^2) + 0.05)
 ```
 
-```bash
-python3 analyze_checkpoint.py /path/to/model_1000.pt \
-  --num-envs 16394 --stage 1 --episodes-per-env 1
-```
+Reward-manager timestep scaling is disabled: progress and terminal rewards are
+per-step/event values, and only running control/time costs are multiplied by dt.
 
-```bash
-MUJOCO_GL=disable python3 -m mjlab.scripts.train \
-  Mjlab-Velocity-HeadLoad-Unitree-G1 \
-  --env.payload-stage 1 \
-  --agent.logger tensorboard
-```
+Success must hold for 1 s: the entire projected cube fits within the tabletop
+with 2 cm margin, the tabletop carries at least 80% of its weight, the cube has
+no robot contact, its linear/angular speeds are below 0.03 m/s and 0.1 rad/s,
+at least one foot contacts the floor, the robot does not contact the table, and
+no failure condition holds. Any final cube face is accepted.
 
-```bash
-MUJOCO_GL=disable python3 -m mjlab.scripts.play \
-  Mjlab-Velocity-HeadLoad-Unitree-G1 \
-  --checkpoint-file /path/to/model_1000.pt \
-  --num-envs 1 --viewer viser
-```
+Failure: non-foot robot/floor contact, root height below 0.25 m, cube/floor
+contact, or robot/cube horizontal displacement more than 4 m from the origin.
+Timeout is a truncation without the failure penalty. Losing platform contact,
+leaning, stepping, and temporary robot/table contact do not themselves terminate
+the episode. Success and failure terminate immediately after their conditions
+are met, so terminal bonuses are awarded once.
 
-```bash
-HEAD_LOAD_STAGE=4 MUJOCO_GL=disable python3 -m mjlab.scripts.play \
-  Mjlab-Velocity-HeadLoad-Unitree-G1 \
-  --checkpoint-file /path/to/model_1000.pt \
-  --num-envs 1 --viewer viser
-```
+Implementation: `head_unload/asset.py`, `env_cfg.py`, `mdp.py`, `networks.py`.
+The reference robot, actuators, meshes, and licenses are included in
+`head_unload/`; installing the original transport task is not required.
 
-The stability reward uses the current bottom-face/tray intersection and diamond
-friction, including yaw constraints. Full coverage uses 26 analytic square
-facets precomputed per reset. Parallelograms, including rotated rectangles and
-affine projections of tilted rectangular faces, use their analytic support
-function (center term plus absolute projections of two half-edges). Trapezoids
-remain on the general path. General polygons use
-finite support directions and Fourier--Motzkin elimination in batched Torch,
-without CPU geometry transfers or a convex-hull library. Geometry rebuilds use batches of 256; cached margin evaluation uses batches of 512.
-Intersection construction clips against four tray half-planes in fixed
-5/6/7/8-vertex buffers. Four source edge directions generate candidates;
-simultaneously exposed actual edges filter the reference facet normals.
-Bound capacities are read together before blocked elimination. An incidence-count
-filter reduces candidates before compaction, blocked deduplication and blocked
-facet-rank evaluation; no geometry is transferred to the CPU.
-Final facet filtering is retained because redundant rows can change negative
-margin penalties. Square, parallelogram and general-polygon constraints use
-separate buffers, with fixed polygon capacities of 156 and 812 facets.
+## Validation
 
-The physical simulation runs at 200 Hz and control at 50 Hz. Stability is
-sampled at 100 Hz (substeps 2 and 4), including contact validity, and the two
-penalties are averaged for each control step. This changes temporal sampling
-and can miss short events between samples. Sampling phase is global and is
-not restarted by individual environment resets. CUDA execution compiles the
-contact-area, clipping, margin-evaluation and temporal-encoder kernels.
-
-`StabilitySensorCfg` defaults: acceleration scale `1 m/s^2`, angular acceleration
-scale `10 rad/s^2`, target margin `1`, softplus temperature `0.5`. Reward weight
-is `-0.1`. Geometry reuse defaults to `geometry_tolerance=1e-4 m`; a positive
-tolerance compares projected vertices against the last rebuild and introduces
-a geometric approximation. Denominators use the current COM and expressed inertia at each sampled step.
-Body-frame inertia is cached at reset.
-Empty support regions and insufficient contact support receive fixed cost `10`.
-Contact support is rejected when the convex hull of unmerged contact points,
-projected into the tray plane, has area below `minimum_contact_area=1e-6 m^2`.
-Zero, one, two or collinear points have zero area. This support-area criterion
-replaces corner-height detection; it does not identify every possible tilt.
-The hull area is computed in batched Torch. Evaluation uses float64.
-
-The four payload curriculum stages require static acceleration margins of
-`3.0, 2.5, 1.8, 1.0`, respectively, and retain payload/robot mass-ratio ceilings
-of `0.5, 1.0, 1.5, 2.0`. Static margins use a horizontal tray and aligned payload
-reference pose, the actual randomized sliding friction, full COM inertia, and
-the sampled COM placement offset within +/-3 cm. Linear and angular acceleration
-scales are shared with the dynamic stability reward; zero reference motion does
-not remove angular acceleration robustness. The reference gravity is 9.81 m/s².
-Mass remains at least 1 kg and average density remains within 40–4000 kg/m³.
-
-Friction stays fixed throughout each reset's rejection sampling. Density is
-screened before generating block mass properties, and four friction facets give
-an inexpensive margin upper bound before full contact constraints are built.
-Full tray coverage uses the 26 analytic facets; partial coverage uses the existing
-batched GPU polygon constraints for the actual reference rectangle intersection.
-The accepted placement offset is reused when placing the payload. Sampling has
-no retry cap, parameter clipping, or fallback distribution. Curriculum promotion
-and stage-dependent reward weights are unchanged.
-
-Payload reset applies a `-0.1 mm` translation along the tray normal to reduce
-contact-establishment transients. This does not alter the soft-contact parameters.
-
-After installation, run the mathematical regression checks with:
-
-```bash
-python3 -m unittest discover -s tests
-```
-
-### Foot contact reward
-
-Each foot uses ten STL-fitted capsules (rear/front rows of five). The task
-replaces `soft_landing` with `soft_foot_contact` at weight **-0.02**:
-`cost = (max_over_20_capsules(abs(net_force_world_z)) / 100 N)^2`.
-Each geom sums its ground contacts before the global maximum is taken.
-The penalty is active every control step, including zero-command standing.
-On horizontal ground the vertical force magnitude is the capsule normal load.
-The reward manager applies its usual timestep scaling; at dt=0.02 s,
-the contribution is `-0.0004 * (Fmax / 100 N)^2`.
-
-Local CPU replay of model_17700 (stage 1, 8 environments, 1500 steps per seed)
-measured mean costs 3.7140 and 3.2618 for seeds 42/43 before the final
-user-selected weight. At -0.02 these imply approximately -0.00149/-0.00130
-per step. These measurements used the local task configuration, not all
-subsequent remote changes or higher payload stages.
+CPU smoke run with mjlab 1.6.0, MuJoCo / MuJoCo-Warp 3.11.0, Warp 1.15.0,
+RSL-RL 5.4.2, and PyTorch 2.13.0: two environments, depth rendering, partial
+reset, one PPO update with CNN gradients, actor/critic input isolation,
+TorchScript export, and checkpoint save/load passed. Camera rays see the table
+without platform/housing occlusion. A physical table-support fixture triggers
+success after one stable second; cube/floor contact triggers failure.
+This verifies the implementation, not a learned unloading policy. GPU training,
+convergence, and hardware deployment have not been evaluated.

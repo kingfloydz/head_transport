@@ -3,7 +3,6 @@
 import mujoco_warp as mjwarp
 import torch
 import warp as wp
-from mjlab.tasks.head_load_velocity.asset import PLATFORM_HALF_SIZE
 from mjlab.utils.lab_api.math import (
   matrix_from_quat,
   quat_apply,
@@ -20,6 +19,7 @@ from .asset import (
   TABLE_WIDTH,
   TARGET_INSET,
 )
+from .robot import PLATFORM_HALF_SIZE
 
 
 class ResetScene:

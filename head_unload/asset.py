@@ -5,7 +5,8 @@ from dataclasses import replace
 
 import mujoco
 from mjlab.entity import EntityCfg
-from mjlab.tasks.head_load_velocity.asset import (
+
+from .robot import (
   FOOT_PATTERN,
   FOOT_SOLREF,
   PAYLOAD_SOLREF,
