@@ -37,7 +37,7 @@ dimensions: they are not directly resumable as unloading checkpoints.
   inertias are 0.09 kg m². Initial joint/root/payload velocities are zero.
 - Fixed 1 m-high tabletop, 1.2 m wide and 1 m deep, 5 cm thick, with four legs.
 - Robot faces +X; tabletop near edge is in front of the robot. No yaw or lateral
-  randomization. Each reset samples **root-to-near-edge distance U(0.3, 1.7) m**.
+  randomization. Each reset uses a fixed **root-to-near-edge distance of 0.3 m**.
   The implementation moves the fixed-base table's mocap pose only at reset.
 - Box/platform and box/table sliding friction: **0.6**. Foot/ground sliding
   friction remains fixed at **0.3**. No other domain randomization.
@@ -82,6 +82,8 @@ r = 5 * (D_previous - D_current)
     - dt * (0.1 * sum((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2))
     - dt * (sum_joint_soft_limit_violation + self_collision + robot_tabletop_contact)
+    + dt * both_feet_on_ground
+    - dt * (norm(box_table_contact_force) / (6 * 9.81) - 1)^2
 ```
 
 Reward-manager timestep scaling is disabled: progress and terminal rewards are
@@ -95,6 +97,11 @@ weights are both -1.0, matching the official G1 walking configuration.
 Action smoothing uses the official sum of squared raw action differences with
 weight -0.1. The additional torque cost uses mean squared effort-limit-normalized
 torques with weight -0.05. There is no constant time penalty.
+Both feet contacting the floor earns a reward of +1 per second; otherwise zero.
+The box/tabletop force penalty uses the magnitude of the resultant contact force
+(including tangential force), normalized by box weight (58.86 N), with weight -1.
+It is zero at 58.86 N and applies throughout the episode, including before contact:
+zero force incurs a penalty of -1 per second. These terms do not change termination.
 
 Success requires all three conditions continuously for **more than 5 seconds**
 (251 control steps at 50 Hz):

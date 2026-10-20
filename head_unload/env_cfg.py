@@ -91,6 +91,8 @@ def unload_env_cfg(play=False):
       "robot_table": RewardTermCfg(
         func=mdp.collision_cost, params={"sensor_name": "robot_table"}, weight=-1.0),
       "control": RewardTermCfg(func=mdp.control_cost, weight=-1.0),
+      "feet_ground": RewardTermCfg(func=mdp.feet_ground_reward, weight=1.0),
+      "box_table_force": RewardTermCfg(func=mdp.box_table_force_cost, weight=-1.0),
     },
     terminations={
       "failure": TerminationTermCfg(func=mdp.failure),

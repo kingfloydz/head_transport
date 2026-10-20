@@ -44,7 +44,7 @@ class ResetScene:
     )
     table_pose = table.data.default_root_state[env_ids, :7].clone()
     table_pose[:, :3] = origins
-    table_pose[:, 0] += torch.empty(len(env_ids), device=env.device).uniform_(0.3, 2.0) + TABLE_DEPTH / 2
+    table_pose[:, 0] += 0.3 + TABLE_DEPTH / 2
     table.write_mocap_pose_to_sim(table_pose, env_ids)
     with wp.ScopedDevice(env.sim.wp_device):
       mjwarp.kinematics(env.sim.wp_model, env.sim.wp_data)
@@ -173,3 +173,12 @@ def joint_limit_cost(env):
 
 def collision_cost(env, sensor_name):
   return env.step_dt * contact(env, sensor_name).any(-1).float()
+
+
+def feet_ground_reward(env):
+  return env.step_dt * contact(env, "feet_ground").all(-1).float()
+
+
+def box_table_force_cost(env):
+  force = env.scene["box_table"].data.force.sum(dim=1).norm(dim=-1)
+  return env.step_dt * (force / (BOX_MASS * 9.81) - 1.0).square()
