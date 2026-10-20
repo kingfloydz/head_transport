@@ -77,8 +77,8 @@ cube center height 1.15 m. Let `D` be the cube-center distance to this goal:
 
 ```
 r = 5 * (D_previous - D_current)
-    + 20 * success - 10 * failure
-    + dt * 0.3 * exp(-mean(((q - q_default) / std)^2))
+    + dt * 20 * box_stable - 10 * failure
+    + dt * 3.0 * exp(-mean(((q - q_default) / std)^2))
     - dt * (0.1 * sum((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2))
     - dt * (sum_joint_soft_limit_violation + self_collision + robot_tabletop_contact)
@@ -86,11 +86,11 @@ r = 5 * (D_previous - D_current)
     - dt * (norm(box_table_contact_force) / (6 * 9.81) - 1)^2
 ```
 
-Reward-manager timestep scaling is disabled: progress and terminal rewards are
-per-step/event values. Running pose rewards and control costs are multiplied
+Reward-manager timestep scaling is disabled: progress and the failure penalty are
+per-step/event values. Running stability/pose rewards and control costs are multiplied
 by dt, matching the walking task's reward-rate convention. Pose uses all 29 joints
 and the official G1 exponential pose formula, with a fixed std of 0.15 rad for
-every joint. Its weight is 0.3 and it is active throughout the episode. Unlike
+every joint. Its weight is 3.0 and it is active throughout the episode. Unlike
 the official command-dependent tolerances, this unloading task uses the same
 0.15 rad tolerance throughout. Joint-limit and self-collision
 weights are both -1.0, matching the official G1 walking configuration.
@@ -115,7 +115,12 @@ Any interruption resets the timer. Failure takes precedence over success.
 Failure has only two conditions: non-foot robot/floor contact or cube/floor
 contact. No standing, pelvis-height, torso-angle, support-force or travel-distance
 threshold is imposed. Timeout at 20 s is a truncation without a failure penalty.
-Success and failure terminate immediately, awarding their terminal reward once.
+Success and failure terminate immediately. Failure incurs its penalty once.
+The success reward is a rate of +20 per second while all box-stability conditions
+hold and no failure occurs, starting with the first qualifying step. At 50 Hz
+this is +0.4 per qualifying step, or +100.4 over 251 consecutive steps before
+success termination. Interrupted stable periods also earn reward for their duration;
+unstable steps earn zero and reset the timer. There is no terminal success bonus.
 
 Joint soft-limit violation (summed radians), any robot self-contact, and any
 robot/tabletop (including the platform) contact each have weight -1 and are scaled by dt.

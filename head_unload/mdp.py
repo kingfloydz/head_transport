@@ -140,6 +140,10 @@ def success(env):
   return env.unload.hold_steps > 5.0 / env.step_dt
 
 
+def success_reward(env):
+  return env.step_dt * (env.unload.hold_steps > 0).float()
+
+
 def pose(env):
   r = env.scene["robot"].data
   error = (r.joint_pos - r.default_joint_pos) / 0.15

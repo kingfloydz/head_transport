@@ -82,8 +82,8 @@ def unload_env_cfg(play=False):
     events={"reset": EventTermCfg(func=mdp.ResetScene, mode="reset")},
     rewards={
       "progress": RewardTermCfg(func=mdp.progress, weight=5.0),
-      "pose": RewardTermCfg(func=mdp.pose, weight=0.3),
-      "success": RewardTermCfg(func=mdp.terminal_reward, params={"name": "success"}, weight=20.0),
+      "pose": RewardTermCfg(func=mdp.pose, weight=3.0),
+      "success": RewardTermCfg(func=mdp.success_reward, weight=20.0),
       "failure": RewardTermCfg(func=mdp.terminal_reward, params={"name": "failure"}, weight=-10.0),
       "joint_limits": RewardTermCfg(func=mdp.joint_limit_cost, weight=-1.0),
       "self_collision": RewardTermCfg(
