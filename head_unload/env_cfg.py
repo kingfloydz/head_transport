@@ -16,6 +16,7 @@ from mjlab.viewer import ViewerConfig
 
 from . import mdp
 from .asset import FOOT_SOLREF, payload_cfg, robot_cfg, table_cfg
+from .robot import FOOT_PATTERN
 
 
 def contact_sensor(name, primary, secondary):
@@ -58,6 +59,11 @@ def unload_env_cfg(play=False):
         contact_sensor("box_robot", box, whole_robot),
         contact_sensor("feet_ground", ContactMatch(
           mode="subtree", pattern="(left|right)_ankle_roll_link", entity="robot"), ground),
+        ContactSensorCfg(
+          name="sole_ground", primary=ContactMatch(
+            mode="geom", pattern=FOOT_PATTERN, entity="robot"),
+          secondary=ground, fields=("found",), reduce="netforce",
+        ),
         contact_sensor("body_ground", ContactMatch(
           mode="geom", pattern=r"(?!(left|right)_foot\d+_collision$).*_collision", entity="robot"), ground),
         contact_sensor("robot_table", whole_robot, tabletop),
@@ -89,9 +95,9 @@ def unload_env_cfg(play=False):
       "self_collision": RewardTermCfg(
         func=mdp.collision_cost, params={"sensor_name": "self_collision"}, weight=-1.0),
       "robot_table": RewardTermCfg(
-        func=mdp.collision_cost, params={"sensor_name": "robot_table"}, weight=-1.0),
+        func=mdp.collision_cost, params={"sensor_name": "robot_table"}, weight=-3.0),
       "control": RewardTermCfg(func=mdp.control_cost, weight=-1.0),
-      "feet_ground": RewardTermCfg(func=mdp.feet_ground_reward, weight=1.0),
+      "feet_ground": RewardTermCfg(func=mdp.feet_ground_reward, weight=3.0),
       "box_table_force": RewardTermCfg(func=mdp.box_table_force_cost, weight=-1.0),
     },
     terminations={

@@ -81,8 +81,8 @@ r = 5 * (D_previous - D_current)
     + dt * 3.0 * exp(-mean(((q - q_default) / std)^2))
     - dt * (0.1 * sum((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2))
-    - dt * (sum_joint_soft_limit_violation + self_collision + robot_tabletop_contact)
-    + dt * both_feet_on_ground
+    - dt * (sum_joint_soft_limit_violation + self_collision + 3 * robot_tabletop_contact)
+    + dt * 3 * all_sole_capsules_on_ground
     - dt * (norm(box_table_contact_force) / (6 * 9.81) - 1)^2
 ```
 
@@ -97,7 +97,9 @@ weights are both -1.0, matching the official G1 walking configuration.
 Action smoothing uses the official sum of squared raw action differences with
 weight -0.1. The additional torque cost uses mean squared effort-limit-normalized
 torques with weight -0.05. There is no constant time penalty.
-Both feet contacting the floor earns a reward of +1 per second; otherwise zero.
+All 20 sole capsules (10 per foot) contacting the floor simultaneously earns
+a reward of +3 per second; one missing contact makes this reward zero. A per-geom
+contact sensor supplies this gate; the two per-foot critic flags remain unchanged.
 The box/tabletop force penalty uses the magnitude of the resultant contact force
 (including tangential force), normalized by box weight (58.86 N), with weight -1.
 It is zero at 58.86 N and applies throughout the episode, including before contact:
@@ -122,8 +124,8 @@ this is +0.4 per qualifying step, or +100.4 over 251 consecutive steps before
 success termination. Interrupted stable periods also earn reward for their duration;
 unstable steps earn zero and reset the timer. There is no terminal success bonus.
 
-Joint soft-limit violation (summed radians), any robot self-contact, and any
-robot/tabletop (including the platform) contact each have weight -1 and are scaled by dt.
+Joint soft-limit violation (summed radians) and robot self-contact have weight -1.
+Robot/tabletop contact (including the platform) has weight -3. All are scaled by dt.
 Collision penalties are binary per control step, not contact-count penalties.
 The head platform is included in the tabletop penalty; platform self-contact
 and platform/floor contact also count. Table legs are not part of the tabletop

@@ -180,7 +180,7 @@ def collision_cost(env, sensor_name):
 
 
 def feet_ground_reward(env):
-  return env.step_dt * contact(env, "feet_ground").all(-1).float()
+  return env.step_dt * contact(env, "sole_ground").all(-1).float()
 
 
 def box_table_force_cost(env):
