@@ -180,7 +180,11 @@ def collision_cost(env, sensor_name):
 
 
 def feet_ground_reward(env):
-  return env.step_dt * contact(env, "sole_ground").all(-1).float()
+  rows = torch.stack([
+    contact(env, f"{side}_sole_{row}").any(-1)
+    for side in ("left", "right") for row in ("rear", "front")
+  ], dim=-1)
+  return env.step_dt * rows.all(-1).float()
 
 
 def box_table_force_cost(env):

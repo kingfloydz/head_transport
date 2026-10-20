@@ -82,7 +82,7 @@ r = 5 * (D_previous - D_current)
     - dt * (0.1 * sum((a - a_previous)^2)
             + 0.05 * mean((torque / effort_limit)^2))
     - dt * (sum_joint_soft_limit_violation + self_collision + 3 * robot_tabletop_contact)
-    + dt * 3 * all_sole_capsules_on_ground
+    + dt * 3 * both_feet_front_and_rear_on_ground
     - dt * (norm(box_table_contact_force) / (6 * 9.81) - 1)^2
 ```
 
@@ -97,9 +97,10 @@ weights are both -1.0, matching the official G1 walking configuration.
 Action smoothing uses the official sum of squared raw action differences with
 weight -0.1. The additional torque cost uses mean squared effort-limit-normalized
 torques with weight -0.05. There is no constant time penalty.
-All 20 sole capsules (10 per foot) contacting the floor simultaneously earns
-a reward of +3 per second; one missing contact makes this reward zero. A per-geom
-contact sensor supplies this gate; the two per-foot critic flags remain unchanged.
+Each foot must have at least one rear-row capsule (1-5) and at least one
+front-row capsule (6-10) contacting the floor simultaneously to earn +3 per second.
+Any unsupported row on either foot makes this reward zero. Four per-row contact
+sensors supply this gate; the two per-foot critic flags remain unchanged.
 The box/tabletop force penalty uses the magnitude of the resultant contact force
 (including tangential force), normalized by box weight (58.86 N), with weight -1.
 It is zero at 58.86 N and applies throughout the episode, including before contact:

@@ -16,7 +16,6 @@ from mjlab.viewer import ViewerConfig
 
 from . import mdp
 from .asset import FOOT_SOLREF, payload_cfg, robot_cfg, table_cfg
-from .robot import FOOT_PATTERN
 
 
 def contact_sensor(name, primary, secondary):
@@ -59,11 +58,12 @@ def unload_env_cfg(play=False):
         contact_sensor("box_robot", box, whole_robot),
         contact_sensor("feet_ground", ContactMatch(
           mode="subtree", pattern="(left|right)_ankle_roll_link", entity="robot"), ground),
-        ContactSensorCfg(
-          name="sole_ground", primary=ContactMatch(
-            mode="geom", pattern=FOOT_PATTERN, entity="robot"),
+        *(ContactSensorCfg(
+          name=f"{side}_sole_{row}", primary=ContactMatch(
+            mode="geom", pattern=rf"{side}_foot{indices}_collision", entity="robot"),
           secondary=ground, fields=("found",), reduce="netforce",
-        ),
+        ) for side in ("left", "right")
+          for row, indices in (("rear", "[1-5]"), ("front", "(?:[6-9]|10)"))),
         contact_sensor("body_ground", ContactMatch(
           mode="geom", pattern=r"(?!(left|right)_foot\d+_collision$).*_collision", entity="robot"), ground),
         contact_sensor("robot_table", whole_robot, tabletop),
